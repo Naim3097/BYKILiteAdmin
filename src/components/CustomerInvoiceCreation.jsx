@@ -1,2018 +1,968 @@
 import React, { useState, useEffect } from 'react'
 import { useCustomer } from '../context/CustomerContext'
-import { useTransaction } from '../context/TransactionContext'
+import { useEmployee } from '../context/EmployeeContext'
 import { createCustomerInvoice, updateCustomerInvoice } from '../utils/FirebaseDataUtils'
 import { collection, query, orderBy, onSnapshot, getDocs, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '../firebaseConfig'
-import PDFGenerator from '../utils/PDFGenerator'
+import { LeanxService } from '../utils/LeanxService'
+import InvoicePreview from './InvoicePreview'
 
 function CustomerInvoiceCreation({ setActiveSection }) {
-  console.log('🔍 CustomerInvoiceCreation component mounting...')
+  // --- States ---
+  const [viewMode, setViewMode] = useState('list') // 'list', 'form', 'analysis'
+  const [isEditing, setIsEditing] = useState(false)
+  const [editingId, setEditingId] = useState(null)
   
-  const [viewMode, setViewMode] = useState('list') // 'list' or 'create'
+  // Modal & Search
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [showCustomerModal, setShowCustomerModal] = useState(false)
+  const [viewInvoice, setViewInvoice] = useState(null)
+  const [showPDF, setShowPDF] = useState(false)
   const [customerSearchTerm, setCustomerSearchTerm] = useState('')
-  const [showViewInvoiceModal, setShowViewInvoiceModal] = useState(false)
-  const [selectedInvoiceForView, setSelectedInvoiceForView] = useState(null)
-  const [showEditInvoiceModal, setShowEditInvoiceModal] = useState(false)
-  const [selectedInvoiceForEdit, setSelectedInvoiceForEdit] = useState(null)
-  
-  // Invoice form states
+  const [paymentLinkModal, setPaymentLinkModal] = useState({ show: false, url: '', invoice: null, loading: false, error: null })
+  const [analysisSearch, setAnalysisSearch] = useState('')
+
+  // Form Data
   const [manualParts, setManualParts] = useState([])
   const [laborCharges, setLaborCharges] = useState([])
-  const [selectedMechanic, setSelectedMechanic] = useState(null)
-  const [mechanics, setMechanics] = useState([])
   const [workDescription, setWorkDescription] = useState('')
   const [vehicleInfo, setVehicleInfo] = useState({ make: '', model: '', year: '', plate: '' })
   const [paymentTerms, setPaymentTerms] = useState(30)
   const [paymentStatus, setPaymentStatus] = useState('pending')
   const [discount, setDiscount] = useState(0)
   const [deposit, setDeposit] = useState(0)
+  const [depositStatus, setDepositStatus] = useState('none') // 'none', 'paid_offline', 'link_generated', 'paid_link'
   const [notes, setNotes] = useState('')
   
-  // DirectLending states
+  // Job Return / Linking
+  const [parentInvoiceId, setParentInvoiceId] = useState(null)
+  const [parentInvoiceNumber, setParentInvoiceNumber] = useState(null)
+
+  // Financials & Commission
   const [useDirectLending, setUseDirectLending] = useState(false)
   const [directLendingAmount, setDirectLendingAmount] = useState(0)
-  
-  // Commission settings
-  const [commissionType, setCommissionType] = useState('percentage') // 'percentage' or 'fixed'
-  const [commissionValue, setCommissionValue] = useState(0)
-  const [commissionAmount, setCommissionAmount] = useState(0)
-  
-  // Supplier cost for commission calculation
   const [totalPartsSupplierCost, setTotalPartsSupplierCost] = useState(0)
   
-  // Commission distribution
-  const [commissionDistributionType, setCommissionDistributionType] = useState('individual') // 'individual' or 'team'
-  const [selectedMechanicForCommission, setSelectedMechanicForCommission] = useState(null)
-  const [teamMembers, setTeamMembers] = useState([
-    { mechanic: null, percentage: 50 },
-    { mechanic: null, percentage: 50 }
-  ])
-  
+  // Commission 2.0 (Flexible Multi-Person)
+  const [mechanics, setMechanics] = useState([]) // [{ id, name, commissionType: 'percentage'|'fixed', commissionValue, commissionAmount }]
+  const [requestDepositAmount, setRequestDepositAmount] = useState(0)
+
+  // Data
   const [invoiceHistory, setInvoiceHistory] = useState([])
-  const [isLoadingInvoices, setIsLoadingInvoices] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
   const [isSaving, setIsSaving] = useState(false)
 
   const { customers = [] } = useCustomer() || {}
-  const { recordPayment } = useTransaction() || {}
+  const { employees = [] } = useEmployee() || {}
 
-  console.log('📊 Context data loaded:', { 
-    customersCount: customers?.length
-  })
-
-  // Load mechanics from Firestore
+  // Payment Callback Handler
   useEffect(() => {
-    const loadMechanics = async () => {
-      try {
-        const mechanicsSnapshot = await getDocs(collection(db, 'mechanics'))
-        const mechanicsData = []
-        mechanicsSnapshot.forEach((doc) => {
-          mechanicsData.push({
-            id: doc.id,
-            ...doc.data()
-          })
-        })
-        setMechanics(mechanicsData)
-        console.log('✅ Loaded mechanics:', mechanicsData.length)
-      } catch (error) {
-        console.error('Error loading mechanics:', error)
-      }
-    }
-    loadMechanics()
-  }, [])
-
-  // Load invoice history
-  useEffect(() => {
-    setIsLoadingInvoices(true)
-    try {
-      const invoicesQuery = query(
-        collection(db, 'customer_invoices'),
-        orderBy('dateCreated', 'desc')
-      )
-      
-      const unsubscribe = onSnapshot(invoicesQuery, (snapshot) => {
-        const invoices = []
-        snapshot.forEach((doc) => {
-          invoices.push({
-            id: doc.id,
-            ...doc.data(),
-            dateCreated: doc.data().dateCreated?.toDate() || new Date(),
-            dueDate: doc.data().dueDate?.toDate() || new Date()
-          })
-        })
-        setInvoiceHistory(invoices)
-        setIsLoadingInvoices(false)
-      })
-      
-      return () => unsubscribe()
-    } catch (error) {
-      console.error('Error loading invoices:', error)
-      setIsLoadingInvoices(false)
-    }
-  }, [])
-
-  // Check for invoice to edit from Accounting page
-  useEffect(() => {
-    const editInvoiceData = localStorage.getItem('editInvoiceData')
-    if (editInvoiceData) {
-      try {
-        const invoice = JSON.parse(editInvoiceData)
-        console.log('📝 Loading invoice for editing from Accounting page:', invoice)
+     const params = new URLSearchParams(window.location.search)
+     const status = params.get('payment_status')
+     const invoiceNum = params.get('invoice')
+     const amountStr = params.get('amount')
+     
+     if (status === 'success' && invoiceNum && invoiceHistory.length > 0) {
+        const targetInvoice = invoiceHistory.find(i => i.invoiceNumber === invoiceNum)
         
-        // Clear localStorage
-        localStorage.removeItem('editInvoiceData')
-        
-        // Open edit modal with the invoice
-        setSelectedInvoiceForEdit(invoice)
-        setShowEditInvoiceModal(true)
-        setViewMode('list') // Stay in list view to show the modal
-      } catch (error) {
-        console.error('Error parsing edit invoice data:', error)
-      }
-    }
-  }, [])
+        if (targetInvoice) {
+           const amountPaid = parseFloat(amountStr || targetInvoice.balanceDue || 0)
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('ms-MY', {
-      style: 'currency',
-      currency: 'MYR'
-    }).format(amount || 0)
-  }
+           // Update DB if not already paid (check balance > 1 to allow for float rounding)
+           if (targetInvoice.depositStatus !== 'paid_link' && targetInvoice.balanceDue > 1) {
+               
+               const confirmUpdate = async () => {
+                   try {
+                      const newDeposit = (targetInvoice.deposit || 0) + amountPaid
+                      const newBalance = targetInvoice.customerTotal - newDeposit
+                      
+                      await updateCustomerInvoice(targetInvoice.id, {
+                          depositStatus: 'paid_link',
+                          deposit: newDeposit,
+                          balanceDue: newBalance,
+                          paymentStatus: newBalance < 1 ? 'paid' : 'deposit-paid',
+                          paymentMethod: 'online_link'
+                      })
+                      alert(`Success! Payment of RM${amountPaid} verified and recorded.`)
+                      // Open view for receipt
+                      setViewInvoice(targetInvoice) 
+                   } catch(e) {
+                       console.error(e)
+                       alert("Payment verified but update failed. Check console.")
+                   }
+               }
+               confirmUpdate()
 
-  const formatDate = (date) => {
-    if (!date) return 'N/A'
-    if (date.toDate) return date.toDate().toLocaleDateString()
-    if (date instanceof Date) return date.toLocaleDateString()
-    return new Date(date).toLocaleDateString()
-  }
+           } else {
+               // Already recorded
+               if(targetInvoice.balanceDue <= 1) {
+                  alert(`Payment for Invoice #${invoiceNum} verified.`)
+                  setViewInvoice(targetInvoice)
+               }
+           }
 
-  const getFilteredInvoices = () => {
-    let filtered = invoiceHistory
+           // Clear URL params cleanly so we don't re-trigger
+           window.history.replaceState({}, document.title, window.location.pathname)
+        }
+     }
+  }, [invoiceHistory])
 
-    // Filter by search query
-    if (searchQuery) {
-      filtered = filtered.filter(invoice =>
-        invoice.invoiceNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        invoice.customerName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        invoice.workDescription?.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    }
-
-    // Filter by status
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(invoice => invoice.paymentStatus === statusFilter)
-    }
-
-    return filtered
-  }
-
-  const viewInvoice = (invoice) => {
-    setSelectedInvoiceForView(invoice)
-    setShowViewInvoiceModal(true)
-  }
-
-  const editInvoice = (invoice) => {
-    console.log('� EDIT INVOICE CLICKED:', invoice)
-    console.log('🔴 Setting selectedInvoiceForEdit to:', invoice.id)
-    setSelectedInvoiceForEdit(invoice)
-    console.log('🔴 Setting selectedCustomer')
-    setSelectedCustomer({
-      id: invoice.customerId,
-      name: invoice.customerName,
-      phone: invoice.customerPhone,
-      email: invoice.customerEmail
+  useEffect(() => {
+    const q = query(collection(db, 'customer_invoices'), orderBy('dateCreated', 'desc'))
+    const unsub = onSnapshot(q, (snap) => {
+      setInvoiceHistory(snap.docs.map(d => ({ 
+        id: d.id, ...d.data(), 
+        dateCreated: d.data().dateCreated?.toDate() || new Date() 
+      })))
     })
-    setManualParts(invoice.partsOrdered || [])
-    setLaborCharges(invoice.laborCharges || [])
-    setWorkDescription(invoice.workDescription || '')
-    setVehicleInfo(invoice.vehicleInfo || { make: '', model: '', year: '', plate: '' })
-    setPaymentTerms(invoice.paymentTerms || 30)
-    setPaymentStatus(invoice.paymentStatus || 'pending')
-    setDiscount(invoice.discount || 0)
-    setDeposit(invoice.deposit || 0)
-    setUseDirectLending(invoice.useDirectLending || false)
-    setDirectLendingAmount(invoice.directLendingAmount || 0)
-    setNotes(invoice.notes || '')
-    setSelectedMechanic(invoice.mechanicId ? mechanics.find(m => m.id === invoice.mechanicId) : null)
-    setCommissionType(invoice.commissionType || 'percentage')
-    setCommissionValue(invoice.commissionValue || 0)
-    // Load supplier cost and commission distribution
-    setTotalPartsSupplierCost(invoice.partsSupplierCost || 0)
-    
-    // Handle commission distribution - find the mechanic object if we have an ID
-    const mechanicId = invoice.selectedMechanicForCommission
-    const mechanicObj = mechanicId && typeof mechanicId === 'string' 
-      ? mechanics.find(m => m.id === mechanicId) 
-      : mechanicId // Already an object
-    setSelectedMechanicForCommission(mechanicObj || null)
-    
-    setCommissionDistributionType(invoice.commissionDistributionType || 'individual')
-    setTeamMembers(invoice.teamMembers || [{ mechanicId: null, percentage: 50 }, { mechanicId: null, percentage: 50 }])
-    
-    console.log('🔴 About to call setShowEditInvoiceModal(true)')
-    setShowEditInvoiceModal(true)
-    console.log('🔴 setShowEditInvoiceModal(true) CALLED - Modal should open!')
-  }
+    return () => unsub()
+  }, [])
 
-  const downloadInvoice = (invoice) => {
-    try {
-      console.log('📥 Downloading invoice:', invoice)
-      
-      // Add customer info for proper PDF generation
-      const pdfData = {
-        ...invoice,
-        isQuotation: false,
-        type: 'invoice',
-        customerInfo: {
-          name: invoice.customerName || '',
-          email: invoice.customerEmail || '',
-          phone: invoice.customerPhone || '',
-          address: invoice.customerAddress || ''
-        },
-        items: [
-          ...(invoice.partsOrdered || []).map(part => ({
-            kodProduk: part.sku || '',
-            namaProduk: part.partName || '',
-            quantity: Number(part.quantity) || 0,
-            finalPrice: Number(part.pricePerUnit) || 0,
-            totalPrice: Number(part.total) || 0
-          })),
-          ...(invoice.laborCharges || []).map(labor => ({
-            kodProduk: labor.sku || 'LABOR',
-            namaProduk: labor.description || 'Labor Charge',
-            quantity: 1,
-            finalPrice: Number(labor.amount) || 0,
-            totalPrice: Number(labor.amount) || 0
-          }))
-        ],
-        totalAmount: Number(invoice.customerTotal || invoice.total) || 0,
-        workDescription: invoice.workDescription || '',
-        mechanicName: invoice.mechanicName || '',
-        vehicleInfo: invoice.vehicleInfo || {},
-        useDirectLending: invoice.useDirectLending || false,
-        directLendingAmount: Number(invoice.directLendingAmount) || 0,
-        customerPayableAmount: Number(invoice.customerPayableAmount) || 0
-      }
-      
-      console.log('📄 PDF Data prepared:', pdfData)
-      PDFGenerator.downloadCustomerInvoicePDF(pdfData)
-      console.log('✅ PDF download initiated')
-    } catch (error) {
-      console.error('❌ Error generating PDF:', error)
-      alert('Error generating PDF. Please try again.')
-    }
-  }
-
-  const deleteInvoice = async (invoice) => {
-    const confirmDelete = window.confirm(
-      `Are you sure you want to delete invoice ${invoice.invoiceNumber}?\n\n` +
-      `Customer: ${invoice.customerName}\n` +
-      `Amount: ${formatCurrency(invoice.customerTotal || invoice.total)}\n\n` +
-      `This action cannot be undone.`
-    )
-
-    if (!confirmDelete) return
-
-    try {
-      await deleteDoc(doc(db, 'customer_invoices', invoice.id))
-      console.log('✅ Invoice deleted successfully:', invoice.id)
-      alert('Invoice deleted successfully!')
-    } catch (error) {
-      console.error('❌ Error deleting invoice:', error)
-      alert('Error deleting invoice. Please try again.')
-    }
-  }
-
-  const resetForm = () => {
-    setSelectedCustomer(null)
-    setManualParts([])
-    setLaborCharges([])
-    setSelectedMechanic(null)
-    setWorkDescription('')
-    setVehicleInfo({ make: '', model: '', year: '', plate: '' })
-    setPaymentTerms(30)
-    setPaymentStatus('pending')
-    setDiscount(0)
-    setDeposit(0)
-    setNotes('')
-    setUseDirectLending(false)
-    setDirectLendingAmount(0)
-    setCommissionType('percentage')
-    setCommissionValue(0)
-    setCommissionAmount(0)
-  }
-
+  // --- Calculations ---
   const calculateTotals = () => {
-    const partsTotal = manualParts.reduce((sum, part) => sum + (part.total || 0), 0)
-    const laborTotal = laborCharges.reduce((sum, labor) => sum + (labor.amount || 0), 0)
+    const partsTotal = manualParts.reduce((s, p) => s + (Number(p.total) || 0), 0)
+    const laborTotal = laborCharges.reduce((s, l) => s + (Number(l.amount) || 0), 0)
     const subtotal = partsTotal + laborTotal
     const discountAmount = (subtotal * discount) / 100
     const total = subtotal - discountAmount
     const depositAmount = Number(deposit) || 0
     const balanceDue = total - depositAmount
-    
-    // DirectLending calculations
     const directLending = useDirectLending ? Number(directLendingAmount) || 0 : 0
     const customerPayableAmount = useDirectLending ? balanceDue - directLending : balanceDue
     
-    // NEW: Calculate commission based on parts revenue + labour
-    // Parts Revenue = Customer Price - Supplier Cost
-    const supplierCost = Number(totalPartsSupplierCost) || 0
-    const partsRevenue = partsTotal - supplierCost
-    const commissionBase = partsRevenue + laborTotal // Parts revenue + labour (no discount deduction)
+    // Profit Calc
+    const costOfParts = Number(totalPartsSupplierCost) || 0
+    const baseForCommission = subtotal 
     
-    let calcCommission = 0
-    if (commissionType === 'percentage') {
-      calcCommission = (commissionBase * commissionValue) / 100
-    } else {
-      calcCommission = commissionValue
-    }
-    
+    let totalCommission = 0
+    const calculatedMechanics = mechanics.map(m => {
+       const amt = m.commissionType === 'percentage' 
+          ? (baseForCommission * (Number(m.commissionValue)||0)) / 100
+          : (Number(m.commissionValue) || 0)
+       totalCommission += amt
+       return { ...m, commissionAmount: amt }
+    })
+
     return { 
-      partsTotal, 
-      laborTotal, 
-      subtotal, 
-      discountAmount, 
-      total, 
-      deposit: depositAmount, 
-      balanceDue, 
-      directLendingAmount: directLending,
-      customerPayableAmount,
-      partsSupplierCost: supplierCost,
-      partsRevenue,
-      commissionBase,
-      commission: calcCommission 
+       partsTotal, laborTotal, subtotal, discountAmount, total, 
+       deposit: depositAmount, balanceDue, directLendingAmount: directLending, 
+       customerPayableAmount, partsSupplierCost: costOfParts, 
+       commission: totalCommission, calculatedMechanics 
     }
   }
 
-  // Update commission amount when values change
-  useEffect(() => {
-    const totals = calculateTotals()
-    setCommissionAmount(totals.commission)
-  }, [commissionType, commissionValue, manualParts, laborCharges, discount, deposit, useDirectLending, directLendingAmount, totalPartsSupplierCost])
-
-  const addManualPart = () => {
-    setManualParts([...manualParts, {
-      sku: '',
-      partName: '',
-      quantity: 1,
-      pricePerUnit: 0,
-      total: 0
-    }])
+  // --- Actions ---
+  const handleReturnJob = (invoice) => {
+     resetForm()
+     setSelectedCustomer({
+        id: invoice.customerId,
+        name: invoice.customerName,
+        phone: invoice.customerPhone,
+        email: invoice.customerEmail
+     })
+     setParentInvoiceId(invoice.id)
+     setParentInvoiceNumber(invoice.invoiceNumber)
+     setVehicleInfo(invoice.vehicleInfo || { make: '', model: '', year: '', plate: '' })
+     setWorkDescription(`Return Job / Warranty Claim for Invoice #${invoice.invoiceNumber}`)
+     setViewMode('form')
   }
 
-  const updateManualPart = (index, field, value) => {
-    const updatedParts = [...manualParts]
-    updatedParts[index][field] = value
+  const handleSaveInvoice = async () => {
+    if (!selectedCustomer) return alert('Select Customer')
+    if (manualParts.length === 0 && laborCharges.length === 0) return alert('Add items')
     
-    if (field === 'quantity' || field === 'pricePerUnit') {
-      const qty = field === 'quantity' ? (parseFloat(value) || 0) : updatedParts[index].quantity
-      const price = field === 'pricePerUnit' ? (parseFloat(value) || 0) : updatedParts[index].pricePerUnit
-      updatedParts[index].total = qty * price
-    }
-    
-    setManualParts(updatedParts)
-  }
-
-  const removePart = (index) => {
-    setManualParts(manualParts.filter((_, i) => i !== index))
-  }
-
-  const addLaborCharge = () => {
-    setLaborCharges([...laborCharges, { sku: '', description: '', amount: 0 }])
-  }
-
-  const updateLaborCharge = (index, field, value) => {
-    const updatedLabor = [...laborCharges]
-    updatedLabor[index][field] = value
-    setLaborCharges(updatedLabor)
-  }
-
-  const removeLaborCharge = (index) => {
-    setLaborCharges(laborCharges.filter((_, i) => i !== index))
-  }
-
-  const handleCreateInvoice = async () => {
-    if (!selectedCustomer) {
-      alert('Please select a customer')
-      return
-    }
-
-    if (manualParts.length === 0 && laborCharges.length === 0) {
-      alert('Please add at least one part or labor charge')
-      return
-    }
+    // Helper to recursively remove undefined (Firebase safety)
+    const sanitize = (obj) => {
+        if (obj === undefined) return null;
+        if (obj === null) return null;
+        if (typeof obj !== 'object') return obj;
+        if (obj instanceof Date) return obj;
+        if (Array.isArray(obj)) return obj.map(sanitize);
+        const newObj = {};
+        Object.keys(obj).forEach(key => {
+            const val = sanitize(obj[key]);
+            if (val !== undefined) newObj[key] = val;
+            else newObj[key] = null;
+        });
+        return newObj;
+    };
 
     setIsSaving(true)
     try {
-      const totals = calculateTotals()
-      const invoiceData = {
-        customerId: selectedCustomer.id,
-        customerName: selectedCustomer.name,
-        customerPhone: selectedCustomer.phone,
-        customerEmail: selectedCustomer.email || '',
-        mechanicId: selectedMechanic?.id || null,
-        mechanicName: selectedMechanic?.name || null,
-        partsOrdered: manualParts,
-        laborCharges: laborCharges,
-        workDescription: workDescription,
-        vehicleInfo: vehicleInfo,
-        partsTotal: totals.partsTotal,
-        laborTotal: totals.laborTotal,
-        subtotal: totals.subtotal,
-        discount: discount,
-        discountAmount: totals.discountAmount,
-        deposit: totals.deposit,
-        balanceDue: totals.balanceDue,
-        useDirectLending: useDirectLending,
-        directLendingAmount: totals.directLendingAmount,
-        customerPayableAmount: totals.customerPayableAmount,
-        customerTotal: totals.total,
-        total: totals.total,
-        paymentStatus: paymentStatus,
-        paymentTerms: paymentTerms,
-        notes: notes,
-        // Commission data (internal only, not shown on customer invoice)
-        commissionType: commissionType,
-        commissionValue: commissionValue,
-        commissionAmount: totals.commission,
-        // NEW: Supplier cost and commission distribution
-        partsSupplierCost: totals.partsSupplierCost,
-        partsRevenue: totals.partsRevenue,
-        commissionBase: totals.commissionBase,
-        commissionDistributionType: commissionDistributionType,
-        commissionDistribution: commissionDistributionType === 'individual' 
-          ? { 
-              mechanic: selectedMechanicForCommission || null, 
-              percentage: 100 
-            }
-          : { 
-              teamMembers: teamMembers
-                .filter(tm => tm.mechanic) // Only include team members with assigned mechanics
-                .map(tm => ({ 
-                  mechanicId: tm.mechanic?.id || null, 
-                  mechanicName: tm.mechanic?.name || '', 
-                  percentage: tm.percentage || 0 
-                })) 
-            },
-        selectedMechanicForCommission: selectedMechanicForCommission?.id || null,
-        teamMembers: teamMembers.map(tm => ({ 
-          mechanicId: tm.mechanic?.id || null, 
-          percentage: tm.percentage || 0 
-        })),
-        dateCreated: new Date(),
-        dueDate: new Date(Date.now() + paymentTerms * 24 * 60 * 60 * 1000)
-      }
+       const t = calculateTotals()
+       const rawData = {
+          customerId: selectedCustomer.id || null,
+          customerName: selectedCustomer.name || 'Unknown',
+          customerPhone: selectedCustomer.phone || '',
+          customerEmail: selectedCustomer.email || '',
+          workDescription: workDescription || '',
+          vehicleInfo: vehicleInfo || { make: '', model: '', year: '', plate: '' },
+          partsOrdered: manualParts || [],
+          laborCharges: laborCharges || [],
+          // money
+          partsTotal: Number(t.partsTotal) || 0,
+          laborTotal: Number(t.laborTotal) || 0,
+          subtotal: Number(t.subtotal) || 0,
+          discount: Number(discount) || 0,
+          discountAmount: Number(t.discountAmount) || 0,
+          deposit: Number(t.deposit) || 0,
+          depositStatus: t.deposit > 0 ? 'paid_offline' : (requestDepositAmount > 0 ? 'link_generated' : 'none'),
+          balanceDue: Number(t.balanceDue) || 0,
+          total: Number(t.total) || 0,
+          customerTotal: Number(t.total) || 0,
+          customerPayableAmount: Number(t.customerPayableAmount) || 0,
+          useDirectLending: !!useDirectLending,
+          directLendingAmount: Number(t.directLendingAmount) || 0,
+          paymentStatus: paymentStatus || 'pending',
+          paymentTerms: Number(paymentTerms) || 0,
+          notes: notes || '',
+          // internal
+          partsSupplierCost: Number(t.partsSupplierCost) || 0,
+          mechanics: t.calculatedMechanics || [],
+          commissionAmount: Number(t.commission) || 0,
+          // linking
+          parentInvoiceId: parentInvoiceId || null,
+          parentInvoiceNumber: parentInvoiceNumber || null,
+          invoiceType: parentInvoiceId ? 'return_job' : 'standard'
+       }
+       
+       const data = sanitize(rawData); // Clean up any lingering undefined values
 
-      await createCustomerInvoice(invoiceData)
-      alert('Invoice created successfully!')
-      resetForm()
-      setViewMode('list')
-    } catch (error) {
-      console.error('Error creating invoice:', error)
-      alert('Error creating invoice. Please try again.')
+       if (isEditing && editingId) {
+          await updateCustomerInvoice(editingId, data)
+          alert('Updated!')
+       } else {
+          data.dateCreated = new Date()
+          data.dueDate = new Date(Date.now() + paymentTerms * 86400000)
+          const res = await createCustomerInvoice(data)
+          alert('Created!')
+          if (requestDepositAmount > 0) {
+              setPaymentLinkModal({ show: true, amount: requestDepositAmount, invoice: { ...data, id: res.id, invoiceNumber: res.invoiceNumber || 'NEW' } })
+          }
+       }
+       resetForm()
+       setViewMode('list')
+    } catch (e) {
+       console.error(e)
+       alert('Error: ' + e.message)
     } finally {
-      setIsSaving(false)
+       setIsSaving(false)
     }
   }
-
-  const handleUpdateInvoice = async () => {
-    if (!selectedInvoiceForEdit) return
-
-    setIsSaving(true)
-    try {
-      const totals = calculateTotals()
-      const updatedData = {
-        customerId: selectedCustomer?.id || selectedInvoiceForEdit.customerId,
-        customerName: selectedCustomer?.name || selectedInvoiceForEdit.customerName,
-        customerPhone: selectedCustomer?.phone || selectedInvoiceForEdit.customerPhone,
-        customerEmail: selectedCustomer?.email || selectedInvoiceForEdit.customerEmail || '',
-        mechanicId: selectedMechanic?.id || null,
-        mechanicName: selectedMechanic?.name || null,
-        partsOrdered: manualParts,
-        laborCharges: laborCharges,
-        workDescription: workDescription,
-        vehicleInfo: vehicleInfo,
-        partsTotal: totals.partsTotal,
-        laborTotal: totals.laborTotal,
-        subtotal: totals.subtotal,
-        discount: discount,
-        discountAmount: totals.discountAmount,
-        deposit: totals.deposit,
-        balanceDue: totals.balanceDue,
-        useDirectLending: useDirectLending,
-        directLendingAmount: totals.directLendingAmount,
-        customerPayableAmount: totals.customerPayableAmount,
-        customerTotal: totals.total,
-        total: totals.total,
-        paymentStatus: paymentStatus,
-        paymentTerms: paymentTerms,
-        notes: notes,
-        // Commission data (internal only)
-        commissionType: commissionType,
-        commissionValue: commissionValue,
-        commissionAmount: totals.commission,
-        partsSupplierCost: totals.partsSupplierCost,
-        partsRevenue: totals.partsRevenue,
-        commissionBase: totals.commissionBase,
-        // Commission distribution
-        commissionDistributionType: commissionDistributionType,
-        commissionDistribution: commissionDistributionType === 'individual' 
-          ? { 
-              mechanic: selectedMechanicForCommission || null, 
-              percentage: 100 
-            }
-          : { 
-              teamMembers: teamMembers
-                .filter(tm => tm.mechanic) // Only include team members with assigned mechanics
-                .map(tm => ({ 
-                  mechanicId: tm.mechanic?.id || null, 
-                  mechanicName: tm.mechanic?.name || '', 
-                  percentage: tm.percentage || 0 
-                })) 
-            },
-        selectedMechanicForCommission: selectedMechanicForCommission?.id || null,
-        teamMembers: teamMembers.map(tm => ({ 
-          mechanicId: tm.mechanic?.id || null, 
-          percentage: tm.percentage || 0 
-        })),
-        dueDate: (() => {
-          // Handle both Date objects and Firestore Timestamps
-          const dateCreated = selectedInvoiceForEdit.dateCreated?.toDate 
-            ? selectedInvoiceForEdit.dateCreated.toDate() 
-            : new Date(selectedInvoiceForEdit.dateCreated)
-          return new Date(dateCreated.getTime() + paymentTerms * 24 * 60 * 60 * 1000)
-        })()
-      }
-
-      await updateCustomerInvoice(selectedInvoiceForEdit.id, updatedData)
-      alert('Invoice updated successfully!')
-      setShowEditInvoiceModal(false)
-      resetForm()
-    } catch (error) {
-      console.error('Error updating invoice:', error)
-      alert('Error updating invoice. Please try again.')
-    } finally {
-      setIsSaving(false)
-    }
+  
+  const resetForm = () => {
+     setSelectedCustomer(null)
+     setManualParts([])
+     setLaborCharges([])
+     setWorkDescription('')
+     setVehicleInfo({ make: '', model: '', year: '', plate: '' })
+     setPaymentStatus('pending')
+     setDiscount(0)
+     setDeposit(0)
+     setDepositStatus('none')
+     setIsEditing(false)
+     setEditingId(null)
+     setTotalPartsSupplierCost(0)
+     setMechanics([])
+     setNotes('')
+     setParentInvoiceId(null)
+     setParentInvoiceNumber(null)
+     setRequestDepositAmount(0)
   }
 
-  const filteredCustomers = customers.filter(customer =>
-    customer.name?.toLowerCase().includes(customerSearchTerm.toLowerCase()) ||
-    customer.phone?.includes(customerSearchTerm)
-  )
+  const handleDelete = async (id) => {
+     if (window.confirm("Delete?")) await deleteDoc(doc(db, 'customer_invoices', id))
+  }
 
-  console.log('✅ Component ready to render')
+  // --- Payment Link ---
+  const handleLink = (inv) => {
+     if (inv.paymentStatus === 'paid' && inv.balanceDue <= 0) {
+         alert("This invoice is already fully paid.")
+         return
+     }
+     
+     // EXTENSIVE ANALYSIS: Current Balance vs Saved Link
+     // 1. Calculate what we NEED to charge now (Current Balance)
+     const currentBalance = inv.balanceDue > 0 ? inv.balanceDue : (inv.total || inv.customerTotal)
+     
+     // 2. Check if we have an existing link
+     let existingUrl = inv.lastPaymentLink 
+     let showUrl = null
 
+     // 3. Auto-Detection Logic
+     if (existingUrl) {
+         // Scenario A: Deposit Phase
+         // If we are still waiting for a deposit, the saved link is likely the deposit link. Use it.
+         if (inv.depositStatus === 'link_generated' || inv.depositStatus === 'pending') {
+             showUrl = existingUrl
+         }
+         // Scenario B: Full Payment Phase (No Deposit)
+         // If there is no deposit scheme and it's unpaid, use the saved link.
+         else if ((!inv.deposit || inv.deposit === 0) && inv.paymentStatus !== 'paid') {
+             showUrl = existingUrl
+         }
+         // Scenario C: Balance Phase (Deposit Paid, Balance Remains)
+         // If deposit is marked paid, the old link is likely the "Deposit Link" (which is now done).
+         // We should NOT show it by default. We want to prompt for a NEW link for the balance.
+         else if ((inv.depositStatus === 'paid_link' || inv.depositStatus === 'paid_offline') && inv.balanceDue > 1) {
+             showUrl = null // Force "Generate New Link" view
+         }
+         // Scenario D: Fallback
+         else {
+             showUrl = existingUrl
+         }
+     }
+     
+     setPaymentLinkModal({ 
+         show: true, 
+         amount: currentBalance, 
+         invoice: inv, 
+         url: showUrl,
+         isBalanceLink: inv.depositStatus?.includes('paid')
+     })
+  }
+  
+  const generateLink = async () => {
+     const { invoice, amount } = paymentLinkModal
+     try {
+       setPaymentLinkModal(p => ({...p, loading: true, error: null}))
+       // Try real service
+       const res = await LeanxService.generatePaymentLink(invoice, { name: invoice.customerName, phone: invoice.customerPhone }, amount)
+       if (res.success) {
+          setPaymentLinkModal(p => ({...p, url: res.url, loading: false}))
+          
+          // Save the generated link to Firestore so it can be used for "Retry Payment" later
+          try {
+             await updateCustomerInvoice(invoice.id, { 
+                 lastPaymentLink: res.url,
+                 lastPaymentId: res.id || null // Save the Bill ID for API verification
+             })
+          } catch(err) { console.warn("Could not save payment link to DB", err) }
+
+          // If this was for deposit, update status
+          if (invoice.deposit < amount && invoice.balanceDue > 0) {
+             // It might be a deposit link
+             // In a real app, we'd wait for webhook. Here we mark 'link_generated'.
+          }
+       } else {
+          throw new Error(res.error || 'Failed')
+       }
+     } catch (e) {
+        // Validation / Demo Fallback
+        const demo = `https://demo.payment.com/pay/${invoice.invoiceNumber}?amt=${amount}`
+        setPaymentLinkModal(p => ({...p, url: demo, loading: false, error: 'Demo Link Generated (API Failed)'}))
+     }
+  }
+  
+  const confirmDepositPaid = async (invoice) => {
+     if(window.confirm(`Confirm deposit of RM${requestDepositAmount > 0 ? requestDepositAmount : invoice.deposit} received via link?`)) {
+        await updateCustomerInvoice(invoice.id, { 
+            depositStatus: 'paid_link', 
+            deposit: (invoice.deposit || 0) + (requestDepositAmount > 0 ? Number(requestDepositAmount) : 0),
+            balanceDue: invoice.customerTotal - ((invoice.deposit || 0) + (requestDepositAmount > 0 ? Number(requestDepositAmount) : 0))
+        })
+     }
+  }
+
+  // --- Analysis Helpers ---
+  const getAnalysis = () => {
+     let rev = 0, cost = 0, profit = 0
+     const items = invoiceHistory.map(i => {
+        const r = Number(i.customerTotal || i.total || 0)
+        const c = (Number(i.partsSupplierCost)||0) + (Number(i.commissionAmount)||0)
+        const p = r - c
+        rev += r; cost += c; profit += p
+        return { ...i, calculatedProfit: p, calculatedCost: c }
+     })
+     return { rev, cost, profit, margin: rev ? (profit/rev)*100 : 0, items }
+  }
+  const analysis = getAnalysis()
+  const totals = calculateTotals()
+
+  // --- Render Helpers ---
+  const formatCurrency = (v) => new Intl.NumberFormat('ms-MY', { style: 'currency', currency: 'MYR' }).format(v || 0)
+
+  // Mechanic Mgmt
+  const addMechanic = (e) => {
+     const emp = employees.find(em => em.id === e.target.value)
+     if(emp && !mechanics.find(m => m.id === emp.id)) {
+        // Fix for mechanics not having 'name' property but 'firstName/lastName'
+        const empName = emp.name || (emp.firstName ? `${emp.firstName} ${emp.lastName || ''}`.trim() : 'Unnamed Staff')
+        setMechanics([...mechanics, { id: emp.id, name: empName, commissionType: 'percentage', commissionValue: 0 }])
+     }
+  }
+  
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {/* Header with View Toggle */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <h2 className="text-2xl font-bold">
-            {viewMode === 'create' ? 'Create Customer Invoice' : 'Invoice Management'}
-          </h2>
-          <div className="flex rounded-lg border border-black-10 overflow-hidden">
-            <button
-              onClick={() => setViewMode('create')}
-              className={`px-4 py-2 text-sm font-medium ${
-                viewMode === 'create'
-                  ? 'bg-primary-red text-white'
-                  : 'bg-white text-primary-black hover:bg-black-5'
-              }`}
-            >
-              Create New
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-4 py-2 text-sm font-medium ${
-                viewMode === 'list'
-                  ? 'bg-primary-red text-white'
-                  : 'bg-white text-primary-black hover:bg-black-5'
-              }`}
-            >
-              View History ({invoiceHistory.length})
-            </button>
+    <div className="space-y-6">
+       
+       {/* Stats (List Mode) */}
+       {viewMode === 'list' && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+             <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+                <p className="text-gray-500 font-bold text-xs uppercase">Total Invoices</p>
+                <h3 className="text-2xl font-bold mt-1">{invoiceHistory.length}</h3>
+             </div>
+             <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+                <p className="text-gray-500 font-bold text-xs uppercase">Total Revenue</p>
+                <h3 className="text-2xl font-bold mt-1 text-green-600">{formatCurrency(analysis.rev)}</h3>
+             </div>
+             <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+                <p className="text-gray-500 font-bold text-xs uppercase">Total Profit</p>
+                <h3 className="text-2xl font-bold mt-1 text-blue-600">{formatCurrency(analysis.profit)}</h3>
+                <p className="text-xs text-gray-400 mt-1">Margin: {analysis.margin.toFixed(1)}%</p>
+             </div>
+             <div className="flex flex-col gap-2">
+                <button onClick={() => { resetForm(); setViewMode('form') }} className="flex-1 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700">New Invoice</button>
+                <button onClick={() => setViewMode('analysis')} className="py-2 bg-white border border-gray-200 font-medium rounded-lg hover:bg-gray-50">Detailed Analysis</button>
+             </div>
           </div>
-        </div>
-        <button
-          onClick={() => setActiveSection('customers')}
-          className="px-4 py-2 text-black-75 hover:text-primary-black"
-        >
-          Back to Customers
-        </button>
-      </div>
+       )}
 
-      {/* Invoice History View */}
-      {viewMode === 'list' && (
-        <div className="space-y-6">
-          {/* Search and Filters */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
-                <input
-                  type="text"
-                  placeholder="Search invoices by customer, number, or description..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-4 py-3 border border-black-25 rounded-lg focus:ring-2 focus:ring-primary-red focus:border-primary-red"
-                />
-              </div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-3 border border-black-25 rounded-lg focus:ring-2 focus:ring-primary-red focus:border-primary-red"
-              >
-                <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="paid">Paid</option>
-                <option value="overdue">Overdue</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Invoice List */}
-          <div className="bg-primary-white rounded-lg border border-black-10 overflow-hidden">
-            <div className="p-4 sm:p-6 border-b border-black-10">
-              <h3 className="text-lg font-semibold text-primary-black">Invoice History</h3>
-              <p className="text-black-75 text-sm">Manage and download existing invoices</p>
-            </div>
-
-            {isLoadingInvoices ? (
-              <div className="p-8 text-center">
-                <p className="text-black-50">Loading invoices...</p>
-              </div>
-            ) : getFilteredInvoices().length === 0 ? (
-              <div className="p-8 text-center">
-                <p className="text-black-50">
-                  {searchQuery ? 'No invoices match your search.' : 'No invoices found.'}
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-black-5">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Invoice</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Customer</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Mechanic</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Amount</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Due Date</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-black-10">
-                    {getFilteredInvoices().map((invoice) => (
-                      <tr key={invoice.id} className="hover:bg-black-5">
-                        <td className="px-4 py-4 text-sm">
-                          <div className="font-medium text-primary-black">{invoice.invoiceNumber}</div>
-                          <div className="text-black-50">{formatDate(invoice.dateCreated)}</div>
-                          {invoice.useDirectLending && (
-                            <div className="mt-1">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
-                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                  <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z"/>
-                                  <path fillRule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z" clipRule="evenodd"/>
-                                </svg>
-                                DirectLending
-                              </span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-4 text-sm">
-                          <div className="text-primary-black">{invoice.customerName}</div>
-                          <div className="text-black-50">{invoice.customerPhone}</div>
-                        </td>
-                        <td className="px-4 py-4 text-sm">
-                          <div className="text-primary-black">{invoice.mechanicName || '-'}</div>
-                        </td>
-                        <td className="px-4 py-4 text-sm font-medium text-primary-black">
-                          {formatCurrency(invoice.customerTotal || invoice.total)}
-                        </td>
-                        <td className="px-4 py-4 text-sm text-primary-black">
-                          {formatDate(invoice.dueDate)}
-                        </td>
-                        <td className="px-4 py-4 text-sm">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                            invoice.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                            invoice.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' :
-                            invoice.paymentStatus === 'overdue' ? 'bg-red-100 text-red-800' :
-                            'bg-black-10 text-black-75'
-                          }`}>
-                            {invoice.paymentStatus?.charAt(0).toUpperCase() + invoice.paymentStatus?.slice(1) || 'Draft'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-sm">
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => viewInvoice(invoice)}
-                              className="text-blue-600 hover:text-blue-800 font-medium"
-                            >
-                              View
-                            </button>
-                            <button
-                              onClick={() => editInvoice(invoice)}
-                              className="text-green-600 hover:text-green-800 font-medium"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => downloadInvoice(invoice)}
-                              className="text-primary-red hover:text-red-dark font-medium"
-                            >
-                              Download
-                            </button>
-                            <button
-                              onClick={() => deleteInvoice(invoice)}
-                              className="text-red-600 hover:text-red-800 font-medium"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
+       {/* List View */}
+       {viewMode === 'list' && (
+          <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
+             <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                <h3 className="font-bold text-gray-700">Invoice History</h3>
+                <input placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="p-2 border rounded text-sm w-64" />
+             </div>
+             <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                   <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+                      <tr>
+                         <th className="px-4 py-3">Ref #</th>
+                         <th className="px-4 py-3">Customer</th>
+                         <th className="px-4 py-3">Mechanic</th>
+                         <th className="px-4 py-3">Amount</th>
+                         <th className="px-4 py-3">Deposit</th>
+                         <th className="px-4 py-3">Status</th>
+                         <th className="px-4 py-3 text-right">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
+                   </thead>
+                   <tbody className="divide-y divide-gray-100">
+                      {invoiceHistory.filter(i => !searchQuery || i.customerName?.toLowerCase().includes(searchQuery.toLowerCase()) || i.invoiceNumber?.toLowerCase().includes(searchQuery.toLowerCase())).map(i => (
+                         <tr key={i.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 font-mono">{i.invoiceNumber} 
+                               {i.parentInvoiceNumber && <span className="block text-[10px] text-purple-500">Ret: #{i.parentInvoiceNumber}</span>}
+                            </td>
+                            <td className="px-4 py-3">{i.customerName}</td>
+                            <td className="px-4 py-3 text-xs">
+                               {(i.mechanics || []).map(m => <div key={m.id}>{m.name}</div>)}
+                            </td>
+                            <td className="px-4 py-3 font-bold">{formatCurrency(i.total || i.customerTotal)}</td>
+                            <td className="px-4 py-3">
+                               {i.deposit > 0 ? (
+                                   <span className="text-green-600 font-bold text-xs flex flex-col">
+                                       <span>Paid {formatCurrency(i.deposit)}</span>
+                                       {/* Allow paying remaining balance via link even if deposit paid */}
+                                       {i.balanceDue > 1 && (
+                                            <button 
+                                                onClick={() => setPaymentLinkModal({ show: true, amount: i.balanceDue, invoice: i })}
+                                                className="text-[10px] text-blue-600 underline mt-1 hover:text-blue-800 text-left"
+                                            >
+                                                Send Balance Link
+                                            </button>
+                                       )}
+                                   </span>
+                               ) : i.depositStatus === 'link_generated' ? (
+                                   <button 
+                                     onClick={() => {
+                                         const amt = prompt("Enter deposit amount received (RM):", i.total * 0.1); 
+                                         if (amt && !isNaN(amt)) {
+                                            updateCustomerInvoice(i.id, {
+                                                depositStatus: 'paid_link',
+                                                deposit: Number(amt),
+                                                balanceDue: (i.customerTotal || i.total) - Number(amt)
+                                            })
+                                         }
+                                     }}
+                                     className="bg-orange-100 text-orange-700 font-bold text-xs px-2 py-1 rounded hover:bg-orange-200 border border-orange-200 cursor-pointer flex items-center gap-1"
+                                     title="Click to mark as Paid"
+                                   >
+                                     Link Sent (Mark Paid)
+                                   </button>
+                               ) : (
+                                   <span className="text-gray-400 text-xs">-</span>
+                               )}
+                            </td>
+                            <td className="px-4 py-3">
+                               <span className={`px-2 py-1 rounded text-xs font-bold border ${i.paymentStatus==='paid'?'bg-green-50 text-green-700 border-green-200':'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
+                                  {i.paymentStatus === 'paid' ? 'Full Payment' : 'Pending/Partial'}
+                               </span>
+                            </td>
+                            <td className="px-4 py-3 text-right space-x-2">
+                               <button onClick={() => setViewInvoice(i)} className="text-gray-600 hover:underline">View</button>
+                               <button onClick={() => { setIsEditing(true); setEditingId(i.id); setSelectedCustomer({id:i.customerId,name:i.customerName,phone:i.customerPhone}); setManualParts(i.partsOrdered||[]); setLaborCharges(i.laborCharges||[]); setPaymentStatus(i.paymentStatus); setMechanics(i.mechanics||[]); setDeposit(i.deposit||0); setViewMode('form'); }} className="text-blue-600 hover:underline">Edit</button>
+                               <button onClick={() => handleLink(i)} className="text-green-600 hover:underline">Link</button>
+                               <button onClick={() => handleReturnJob(i)} className="text-purple-600 hover:underline">Return</button> 
+                               <button onClick={() => handleDelete(i.id)} className="text-red-600 hover:underline">Del</button>
+                            </td>
+                         </tr>
+                      ))}
+                   </tbody>
                 </table>
-              </div>
-            )}
+             </div>
           </div>
-        </div>
-      )}
+       )}
 
-      {/* Create Invoice View */}
-      {viewMode === 'create' && (
-        <div className="space-y-6">
-          {/* Customer Selection */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Customer Information</h3>
-            {selectedCustomer ? (
-              <div className="flex items-center justify-between bg-blue-50 p-4 rounded-lg">
+       {/* Form View (Editor) */}
+       {viewMode === 'form' && (
+          <div className="space-y-4 max-w-4xl mx-auto bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+             <div className="flex justify-between items-center mb-4 pb-4 border-b">
                 <div>
-                  <p className="font-medium text-gray-900">{selectedCustomer.name}</p>
-                  <p className="text-sm text-gray-600">{selectedCustomer.phone}</p>
-                  {selectedCustomer.email && <p className="text-sm text-gray-600">{selectedCustomer.email}</p>}
+                   <h2 className="text-xl font-bold text-gray-900">{isEditing ? 'Edit Invoice' : parentInvoiceId ? 'New Return Job' : 'New Invoice'}</h2>
+                   {parentInvoiceId && <p className="text-sm text-purple-600 font-bold">Linked to Invoice #{parentInvoiceNumber}</p>}
                 </div>
-                <button
-                  onClick={() => setShowCustomerModal(true)}
-                  className="px-4 py-2 text-blue-600 hover:text-blue-800"
-                >
-                  Change Customer
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowCustomerModal(true)}
-                className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600"
-              >
-                + Select Customer
-              </button>
-            )}
-          </div>
+                <button onClick={() => setViewMode('list')} className="text-gray-500">Cancel</button>
+             </div>
+             
+             {/* Customer */}
+             <div className="mb-6">
+                <label className="block text-sm font-bold text-gray-700 mb-2">Customer</label>
+                {selectedCustomer ? (
+                   <div className="p-3 bg-blue-50 border border-blue-100 rounded flex justify-between items-center">
+                      <span className="font-bold text-blue-900">{selectedCustomer.name}</span>
+                      <button onClick={() => setSelectedCustomer(null)} className="text-xs text-blue-600 underline">Change</button>
+                   </div>
+                ) : (
+                   <button onClick={() => setShowCustomerModal(true)} className="w-full p-4 border-2 border-dashed border-gray-300 rounded text-gray-500 hover:bg-gray-50 font-bold">+ Select Customer</button>
+                )}
+             </div>
+             
+             {/* Vehicle & Work */}
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                 <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Vehicle</label>
+                    <input placeholder="Make/Model/Plate" className="input-std" value={vehicleInfo.model} onChange={e => setVehicleInfo({...vehicleInfo, model: e.target.value})} />
+                 </div>
+                 <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Description</label>
+                    <input placeholder="Work Description" className="input-std" value={workDescription} onChange={e => setWorkDescription(e.target.value)} />
+                 </div>
+             </div>
 
-          {/* Vehicle Information */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Vehicle Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input
-                type="text"
-                placeholder="Make (e.g., Toyota)"
-                value={vehicleInfo.make}
-                onChange={(e) => setVehicleInfo({...vehicleInfo, make: e.target.value})}
-                className="px-4 py-2 border rounded-lg"
-              />
-              <input
-                type="text"
-                placeholder="Model (e.g., Camry)"
-                value={vehicleInfo.model}
-                onChange={(e) => setVehicleInfo({...vehicleInfo, model: e.target.value})}
-                className="px-4 py-2 border rounded-lg"
-              />
-              <input
-                type="text"
-                placeholder="Year (e.g., 2020)"
-                value={vehicleInfo.year}
-                onChange={(e) => setVehicleInfo({...vehicleInfo, year: e.target.value})}
-                className="px-4 py-2 border rounded-lg"
-              />
-              <input
-                type="text"
-                placeholder="License Plate"
-                value={vehicleInfo.plate}
-                onChange={(e) => setVehicleInfo({...vehicleInfo, plate: e.target.value})}
-                className="px-4 py-2 border rounded-lg"
-              />
-            </div>
-          </div>
-
-          {/* Work Description & Mechanic */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Work Details</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Mechanic Assigned</label>
-                <select
-                  value={selectedMechanic?.id || ''}
-                  onChange={(e) => setSelectedMechanic(mechanics.find(m => m.id === e.target.value))}
-                  className="w-full px-4 py-2 border rounded-lg"
-                >
-                  <option value="">No mechanic assigned</option>
-                  {mechanics.map(mechanic => (
-                    <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Work Description</label>
-                <textarea
-                  value={workDescription}
-                  onChange={(e) => setWorkDescription(e.target.value)}
-                  placeholder="Describe the work to be performed..."
-                  className="w-full px-4 py-2 border rounded-lg h-24"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Parts */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Parts</h3>
-              <button
-                onClick={addManualPart}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                + Add Part
-              </button>
-            </div>
-            {manualParts.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">SKU</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Part Name</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Quantity</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Price (RM)</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Total</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {manualParts.map((part, index) => (
-                      <tr key={index}>
-                        <td className="px-4 py-2">
-                          <input
-                            type="text"
-                            value={part.sku}
-                            onChange={(e) => updateManualPart(index, 'sku', e.target.value)}
-                            placeholder="SKU"
-                            className="w-24 px-2 py-1 border rounded"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            type="text"
-                            value={part.partName}
-                            onChange={(e) => updateManualPart(index, 'partName', e.target.value)}
-                            placeholder="Part Name"
-                            className="w-full px-2 py-1 border rounded"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            type="number"
-                            value={part.quantity}
-                            onChange={(e) => updateManualPart(index, 'quantity', e.target.value)}
-                            className="w-20 px-2 py-1 border rounded"
-                            min="1"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            type="number"
-                            value={part.pricePerUnit}
-                            onChange={(e) => updateManualPart(index, 'pricePerUnit', e.target.value)}
-                            className="w-24 px-2 py-1 border rounded"
-                            step="0.01"
-                            min="0"
-                          />
-                        </td>
-                        <td className="px-4 py-2 font-medium">{formatCurrency(part.total)}</td>
-                        <td className="px-4 py-2">
-                          <button
-                            onClick={() => removePart(index)}
-                            className="text-red-600 hover:text-red-800 text-sm"
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-gray-500 text-center py-4">No parts added yet. Click "Add Part" to begin.</p>
-            )}
-          </div>
-
-          {/* Labor Charges */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Labor Charges</h3>
-              <button
-                onClick={addLaborCharge}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                + Add Labor
-              </button>
-            </div>
-            {laborCharges.length > 0 ? (
-              <div className="space-y-3">
-                {laborCharges.map((labor, index) => (
-                  <div key={index} className="flex gap-3 items-end">
-                    <div className="w-32">
-                      <label className="block text-xs text-gray-600 mb-1">SKU</label>
-                      <input
-                        type="text"
-                        value={labor.sku}
-                        onChange={(e) => updateLaborCharge(index, 'sku', e.target.value)}
-                        placeholder="e.g., SVC-001"
-                        className="w-full px-3 py-2 border rounded"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-xs text-gray-600 mb-1">Description</label>
-                      <input
-                        type="text"
-                        value={labor.description}
-                        onChange={(e) => updateLaborCharge(index, 'description', e.target.value)}
-                        placeholder="e.g., Engine repair, Oil change"
-                        className="w-full px-3 py-2 border rounded"
-                      />
-                    </div>
-                    <div className="w-40">
-                      <label className="block text-xs text-gray-600 mb-1">Amount (RM)</label>
-                      <input
-                        type="number"
-                        value={labor.amount}
-                        onChange={(e) => updateLaborCharge(index, 'amount', parseFloat(e.target.value) || 0)}
-                        className="w-full px-3 py-2 border rounded"
-                        step="0.01"
-                        min="0"
-                        placeholder="0.00"
-                      />
-                    </div>
-                    <button
-                      onClick={() => removeLaborCharge(index)}
-                      className="px-3 py-2 text-red-600 hover:text-red-800"
-                    >
-                      Remove
-                    </button>
-                  </div>
+             {/* Line Items */}
+             <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                   <h3 className="font-bold text-gray-800">Parts & Labor</h3>
+                   <div className="space-x-2">
+                      <button onClick={() => setManualParts([...manualParts, {sku:'',partName:'',quantity:1,pricePerUnit:0,total:0}])} className="px-2 py-1 bg-gray-100 rounded text-xs font-bold">+ Part</button>
+                      <button onClick={() => setLaborCharges([...laborCharges, {description:'',amount:0}])} className="px-2 py-1 bg-gray-100 rounded text-xs font-bold">+ Labor</button>
+                   </div>
+                </div>
+                {manualParts.map((p, i) => (
+                   <div key={i} className="flex gap-2">
+                       <input className="input-sm w-24" placeholder="SKU" value={p.sku} onChange={e => { const u=[...manualParts]; u[i].sku=e.target.value; setManualParts(u)}} />
+                       <input className="input-sm flex-1" placeholder="Part Name" value={p.partName} onChange={e => { const u=[...manualParts]; u[i].partName=e.target.value; setManualParts(u)}} />
+                       <input className="input-sm w-16" type="number" value={p.quantity} onChange={e => { const u=[...manualParts]; u[i].quantity=e.target.value; u[i].total=u[i].quantity*u[i].pricePerUnit; setManualParts(u)}} />
+                       <input className="input-sm w-24" type="number" value={p.pricePerUnit} onChange={e => { const u=[...manualParts]; u[i].pricePerUnit=e.target.value; u[i].total=u[i].quantity*u[i].pricePerUnit; setManualParts(u)}} />
+                       <button onClick={() => setManualParts(manualParts.filter((_,x) => x!==i))} className="text-red-500 font-bold">x</button>
+                   </div>
                 ))}
-              </div>
-            ) : (
-              <p className="text-gray-500 text-center py-4">No labor charges added yet</p>
-            )}
-          </div>
-
-          {/* Invoice Summary */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Invoice Summary</h3>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Payment Terms (Days)</label>
-                  <input
-                    type="number"
-                    value={paymentTerms}
-                    onChange={(e) => setPaymentTerms(parseInt(e.target.value) || 30)}
-                    className="w-full px-4 py-2 border rounded-lg"
-                    min="0"
-                  />
+                {laborCharges.map((l, i) => (
+                   <div key={i} className="flex gap-2">
+                       <input className="input-sm flex-1" placeholder="Labor Description" value={l.description} onChange={e => { const u=[...laborCharges]; u[i].description=e.target.value; setLaborCharges(u)}} />
+                       <input className="input-sm w-24" type="number" value={l.amount} onChange={e => { const u=[...laborCharges]; u[i].amount=e.target.value; setLaborCharges(u)}} />
+                       <button onClick={() => setLaborCharges(laborCharges.filter((_,x) => x!==i))} className="text-red-500 font-bold">x</button>
+                   </div>
+                ))}
+             </div>
+             
+             {/* Financials & Deposits */}
+             <div className="bg-blue-50 p-4 rounded border border-blue-200 mt-4">
+                <h4 className="font-bold text-xs uppercase text-blue-800 mb-2">Payment & Deposit</h4>
+                <div className="flex flex-wrap gap-4 items-end">
+                   <div>
+                      <label className="block text-xs font-bold text-gray-500">Deposit Paid (Offline)</label>
+                      <input type="number" className="input-sm bg-white" value={deposit} onChange={e => setDeposit(e.target.value)} />
+                   </div>
+                   <div>
+                      <label className="block text-xs font-bold text-gray-500">Request Deposit (Link)</label>
+                      <input type="number" className="input-sm bg-white" value={requestDepositAmount} onChange={e => setRequestDepositAmount(e.target.value)} placeholder="0.00" />
+                   </div>
+                   <div className="text-right flex-1">
+                      <p className="text-xs text-gray-500">Balance Due</p>
+                      <p className="font-bold text-xl text-blue-900">{formatCurrency(totals.balanceDue)}</p>
+                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Payment Status</label>
-                  <select
-                    value={paymentStatus}
-                    onChange={(e) => setPaymentStatus(e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg"
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="paid">Paid</option>
-                    <option value="overdue">Overdue</option>
-                  </select>
-                </div>
-              </div>
+                {requestDepositAmount > 0 && <p className="text-xs text-blue-600 mt-2 font-medium">? Status will be "Pending Link Payment". You must confirm receipt to mark as Paid.</p>}
+             </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Discount (%)</label>
-                <input
-                  type="number"
-                  value={discount}
-                  onChange={(e) => setDiscount(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
-                  className="w-full px-4 py-2 border rounded-lg"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Deposit (RM)</label>
-                <input
-                  type="number"
-                  value={deposit}
-                  onChange={(e) => setDeposit(Math.max(0, parseFloat(e.target.value) || 0))}
-                  className="w-full px-4 py-2 border rounded-lg"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                />
-                <p className="text-xs text-gray-500 mt-1">Amount paid upfront by customer</p>
-              </div>
-
-              {/* DirectLending Section */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex items-center mb-3">
-                  <input
-                    type="checkbox"
-                    id="useDirectLending"
-                    checked={useDirectLending}
-                    onChange={(e) => {
-                      setUseDirectLending(e.target.checked)
-                      if (!e.target.checked) {
-                        setDirectLendingAmount(0)
-                      }
-                    }}
-                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                  />
-                  <label htmlFor="useDirectLending" className="ml-2 text-sm font-medium text-gray-900">
-                    Customer uses DirectLending
-                  </label>
-                </div>
-                
-                {useDirectLending && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      DirectLending Approved Amount (RM)
-                    </label>
-                    <input
-                      type="number"
-                      value={directLendingAmount}
-                      onChange={(e) => setDirectLendingAmount(Math.max(0, parseFloat(e.target.value) || 0))}
-                      className="w-full px-4 py-2 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                    />
-                    <p className="text-xs text-blue-600 mt-1">
-                      Amount approved by DirectLending for installment payment
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Additional notes..."
-                  className="w-full px-4 py-2 border rounded-lg h-20"
-                />
-              </div>
-
-              {/* Mechanic Commission Section (Internal Only) */}
-              {selectedMechanic && (
-                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-4">
-                  <h4 className="text-sm font-semibold text-orange-900 mb-3 flex items-center">
-                    <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"/>
-                    </svg>
-                    Mechanic Commission (Internal - Not shown on customer invoice)
-                  </h4>
-
-                  {/* Supplier Cost Input */}
-                  <div className="bg-white border border-orange-300 rounded-lg p-3">
-                    <label className="block text-xs font-medium text-gray-700 mb-2">
-                      Total Parts Cost (Supplier) *
-                    </label>
-                    <input
-                      type="number"
-                      value={totalPartsSupplierCost}
-                      onChange={(e) => setTotalPartsSupplierCost(parseFloat(e.target.value) || 0)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                      placeholder="Enter total supplier cost for all parts"
-                      min="0"
-                      step="0.01"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Enter the total cost you paid to suppliers for all parts in this invoice
-                    </p>
-                  </div>
-
-                  {/* Commission Type Selection */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Commission Type</label>
-                      <select
-                        value={commissionType}
-                        onChange={(e) => setCommissionType(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                      >
-                        <option value="percentage">Percentage (%)</option>
-                        <option value="fixed">Fixed Amount (RM)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        {commissionType === 'percentage' ? 'Percentage (%)' : 'Amount (RM)'}
-                      </label>
-                      <input
-                        type="number"
-                        value={commissionValue}
-                        onChange={(e) => setCommissionValue(parseFloat(e.target.value) || 0)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                        min="0"
-                        step={commissionType === 'percentage' ? '0.1' : '0.01'}
-                        max={commissionType === 'percentage' ? '100' : undefined}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Commission Distribution Type */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-2">Commission Distribution</label>
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setCommissionDistributionType('individual')}
-                        className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          commissionDistributionType === 'individual'
-                            ? 'bg-orange-600 text-white'
-                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        Individual
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCommissionDistributionType('team')}
-                        className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          commissionDistributionType === 'team'
-                            ? 'bg-orange-600 text-white'
-                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        Team (2 members)
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Individual Commission */}
-                  {commissionDistributionType === 'individual' && (
-                    <div className="bg-white border border-orange-300 rounded-lg p-3">
-                      <label className="block text-xs font-medium text-gray-700 mb-2">Select Mechanic</label>
-                      <select
-                        value={selectedMechanicForCommission?.id || ''}
-                        onChange={(e) => {
-                          const mech = mechanics.find(m => m.id === e.target.value)
-                          setSelectedMechanicForCommission(mech || null)
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                      >
-                        <option value="">Select mechanic...</option>
-                        {mechanics.map(mech => (
-                          <option key={mech.id} value={mech.id}>{mech.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* Team Commission */}
-                  {commissionDistributionType === 'team' && (
-                    <div className="bg-white border border-orange-300 rounded-lg p-3 space-y-3">
-                      <label className="block text-xs font-medium text-gray-700 mb-2">Team Members & Split</label>
-                      
-                      {/* Member 1 */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs text-gray-600 mb-1">Member 1</label>
-                          <select
-                            value={teamMembers[0]?.mechanic?.id || ''}
-                            onChange={(e) => {
-                              const mech = mechanics.find(m => m.id === e.target.value)
-                              setTeamMembers([
-                                { ...teamMembers[0], mechanic: mech || null },
-                                teamMembers[1]
-                              ])
-                            }}
-                            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                          >
-                            <option value="">Select...</option>
-                            {mechanics.map(mech => (
-                              <option key={mech.id} value={mech.id}>{mech.name}</option>
-                            ))}
+             {/* Internal Costing (Mechanics & Supplier) */}
+             <div className="bg-yellow-50 p-4 rounded border border-yellow-200 mt-6">
+                <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Internal Costing & Commission</h4>
+                <div className="space-y-4">
+                   <div>
+                      <label className="block text-xs font-bold text-gray-500 mb-1">Supplier Part Costs</label>
+                      <input type="number" className="input-sm bg-white" value={totalPartsSupplierCost} onChange={e => setTotalPartsSupplierCost(e.target.value)} />
+                   </div>
+                   
+                   <div className="border-t border-yellow-200 pt-3">
+                      <div className="flex justify-between items-center mb-2">
+                          <label className="block text-xs font-bold text-gray-500">Mechanic Commission</label>
+                          <select className="text-xs p-1 rounded border text-gray-900 bg-white w-full max-w-xs" onChange={addMechanic} value="">
+                             <option value="">+ Add Mechanic</option>
+                             {employees.length > 0 ? employees.map(e => (
+                                <option key={e.id} value={e.id}>{e.name || (e.firstName ? `${e.firstName} ${e.lastName || ''}`.trim() : 'Unnamed Staff')}</option>
+                             )) : <option disabled>No staff found</option>}
                           </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-600 mb-1">Split %</label>
-                          <input
-                            type="number"
-                            value={teamMembers[0]?.percentage || 50}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0
-                              setTeamMembers([
-                                { ...teamMembers[0], percentage: val },
-                                { ...teamMembers[1], percentage: 100 - val }
-                              ])
-                            }}
-                            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                            min="0"
-                            max="100"
-                            step="0.1"
-                          />
-                        </div>
                       </div>
-
-                      {/* Member 2 */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs text-gray-600 mb-1">Member 2</label>
-                          <select
-                            value={teamMembers[1]?.mechanic?.id || ''}
-                            onChange={(e) => {
-                              const mech = mechanics.find(m => m.id === e.target.value)
-                              setTeamMembers([
-                                teamMembers[0],
-                                { ...teamMembers[1], mechanic: mech || null }
-                              ])
-                            }}
-                            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                          >
-                            <option value="">Select...</option>
-                            {mechanics.map(mech => (
-                              <option key={mech.id} value={mech.id}>{mech.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-600 mb-1">Split %</label>
-                          <input
-                            type="number"
-                            value={teamMembers[1]?.percentage || 50}
-                            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-gray-100"
-                            disabled
-                          />
-                        </div>
+                      {mechanics.length === 0 && <p className="text-xs text-gray-400 italic">No mechanics assigned.</p>}
+                      {mechanics.map((m, idx) => (
+                         <div key={idx} className="flex gap-2 items-center mb-2 bg-white p-2 rounded border border-yellow-100">
+                             <span className="text-xs font-bold w-32 truncate">{m.name}</span>
+                             <select className="text-xs p-1 border rounded" value={m.commissionType} onChange={e => { const n=[...mechanics]; n[idx].commissionType=e.target.value; setMechanics(n) }}>
+                                <option value="percentage">%</option>
+                                <option value="fixed">RM</option>
+                             </select>
+                             <input type="number" className="input-sm w-20" value={m.commissionValue} onChange={e => { const n=[...mechanics]; n[idx].commissionValue=e.target.value; setMechanics(n) }} />
+                             <span className="text-xs text-gray-500 font-mono w-20 text-right">{formatCurrency(totals.calculatedMechanics[idx]?.commissionAmount)}</span>
+                             <button onClick={() => setMechanics(mechanics.filter((_,x) => x!==idx))} className="text-red-500 font-bold ml-auto">x</button>
+                         </div>
+                      ))}
+                      <div className="text-right text-xs text-gray-500 mt-2">
+                         Total Commission: <b>{formatCurrency(totals.commission)}</b>
                       </div>
-                      
-                      <p className="text-xs text-gray-500 mt-2">
-                        Split percentages must total 100%. Member 2's percentage auto-adjusts.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Commission Breakdown */}
-                  <div className="mt-3 pt-3 border-t border-orange-200 bg-white rounded-lg p-3">
-                    <h5 className="text-xs font-semibold text-gray-700 mb-2">Commission Calculation:</h5>
-                    <div className="space-y-1 text-xs text-gray-600">
-                      <div className="flex justify-between">
-                        <span>Parts (Customer):</span>
-                        <span className="font-medium">{formatCurrency(calculateTotals().partsTotal)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Parts (Supplier Cost):</span>
-                        <span className="font-medium text-red-600">-{formatCurrency(calculateTotals().partsSupplierCost)}</span>
-                      </div>
-                      <div className="flex justify-between border-t pt-1">
-                        <span>Parts Revenue:</span>
-                        <span className="font-medium text-green-600">{formatCurrency(calculateTotals().partsRevenue)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Labour:</span>
-                        <span className="font-medium">{formatCurrency(calculateTotals().laborTotal)}</span>
-                      </div>
-                      <div className="flex justify-between border-t pt-1 font-semibold">
-                        <span>Commission Base:</span>
-                        <span className="text-blue-600">{formatCurrency(calculateTotals().commissionBase)}</span>
-                      </div>
-                      {commissionType === 'percentage' && (
-                        <div className="flex justify-between text-xs">
-                          <span>Rate:</span>
-                          <span>{commissionValue}%</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between border-t pt-1 text-sm font-bold">
-                        <span>Total Commission:</span>
-                        <span className="text-orange-600">{formatCurrency(commissionAmount)}</span>
-                      </div>
-                    </div>
-
-                    {/* Distribution Breakdown */}
-                    {commissionDistributionType === 'individual' && selectedMechanicForCommission && (
-                      <div className="mt-3 pt-3 border-t border-gray-200">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium text-gray-700">
-                            {selectedMechanicForCommission.name}:
-                          </span>
-                          <span className="text-base font-bold text-orange-600">
-                            {formatCurrency(commissionAmount)}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {commissionDistributionType === 'team' && teamMembers[0]?.mechanic && teamMembers[1]?.mechanic && (
-                      <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium text-gray-700">
-                            {teamMembers[0].mechanic.name} ({teamMembers[0].percentage}%):
-                          </span>
-                          <span className="text-base font-bold text-orange-600">
-                            {formatCurrency((commissionAmount * teamMembers[0].percentage) / 100)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium text-gray-700">
-                            {teamMembers[1].mechanic.name} ({teamMembers[1].percentage}%):
-                          </span>
-                          <span className="text-base font-bold text-orange-600">
-                            {formatCurrency((commissionAmount * teamMembers[1].percentage) / 100)}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                   </div>
                 </div>
-              )}
-
-              <div className="border-t pt-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>Parts Total:</span>
-                  <span className="font-medium">{formatCurrency(calculateTotals().partsTotal)}</span>
+                <div className="mt-2 text-right text-xs text-gray-500 border-t border-yellow-200 pt-2">
+                   Est. Net Profit: <b className="text-green-700 text-sm">{formatCurrency(totals.total - (Number(totalPartsSupplierCost)||0) - totals.commission)}</b>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span>Labor Total:</span>
-                  <span className="font-medium">{formatCurrency(calculateTotals().laborTotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Subtotal:</span>
-                  <span className="font-medium">{formatCurrency(calculateTotals().subtotal)}</span>
-                </div>
-                {discount > 0 && (
-                  <div className="flex justify-between text-sm text-green-600">
-                    <span>Discount ({discount}%):</span>
-                    <span className="font-medium">-{formatCurrency(calculateTotals().discountAmount)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-lg font-bold border-t pt-2">
-                  <span>Total:</span>
-                  <span className="text-red-600">{formatCurrency(calculateTotals().total)}</span>
-                </div>
-                {deposit > 0 && (
-                  <>
-                    <div className="flex justify-between text-sm text-blue-600">
-                      <span>Deposit Paid:</span>
-                      <span className="font-medium">-{formatCurrency(calculateTotals().deposit)}</span>
-                    </div>
-                    <div className="flex justify-between text-lg font-bold text-orange-600 border-t pt-2">
-                      <span>Balance Due:</span>
-                      <span>{formatCurrency(calculateTotals().balanceDue)}</span>
-                    </div>
-                  </>
-                )}
-                {useDirectLending && (
-                  <>
-                    <div className="flex justify-between text-sm text-purple-600 border-t pt-2">
-                      <span>DirectLending Amount:</span>
-                      <span className="font-medium">-{formatCurrency(calculateTotals().directLendingAmount)}</span>
-                    </div>
-                    <div className="flex justify-between text-lg font-bold text-green-600 border-t pt-2">
-                      <span>Customer Payable Amount:</span>
-                      <span>{formatCurrency(calculateTotals().customerPayableAmount)}</span>
-                    </div>
-                    <p className="text-xs text-gray-600 mt-1 italic">
-                      * Revenue received: Full amount ({formatCurrency(calculateTotals().total)}) = DirectLending + Customer Payment
-                    </p>
-                  </>
-                )}
-              </div>
-
-              <div className="flex gap-4 pt-4">
-                <button
-                  onClick={resetForm}
-                  className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
-                  disabled={isSaving}
-                >
-                  Reset Form
-                </button>
-                <button
-                  onClick={handleCreateInvoice}
-                  disabled={isSaving || !selectedCustomer}
-                  className="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400"
-                >
-                  {isSaving ? 'Creating...' : 'Create Invoice'}
-                </button>
-              </div>
-            </div>
+             </div>
+             
+             {/* Footer Actions */}
+             <div className="flex justify-between items-center pt-4 border-t mt-6">
+                 <div>
+                    <p className="text-sm text-gray-500">Total Amount</p>
+                    <p className="text-3xl font-bold text-gray-900">{formatCurrency(totals.total)}</p>
+                 </div>
+                 <button onClick={handleSaveInvoice} disabled={isSaving} className="px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg">{isSaving ? 'Saving...' : 'Save Invoice'}</button>
+             </div>
           </div>
-        </div>
-      )}
-
-      {/* View Invoice Modal */}
-      {showViewInvoiceModal && selectedInvoiceForView && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Invoice Details</h2>
-              <button 
-                onClick={() => setShowViewInvoiceModal(false)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              {/* Invoice Info */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="font-medium text-gray-900 mb-2">Invoice Information</h3>
-                <div className="space-y-2 text-sm">
-                  <p><span className="font-medium">Invoice #:</span> {selectedInvoiceForView.invoiceNumber}</p>
-                  <p><span className="font-medium">Date:</span> {formatDate(selectedInvoiceForView.dateCreated)}</p>
-                  <p><span className="font-medium">Due Date:</span> {formatDate(selectedInvoiceForView.dueDate)}</p>
-                  <p><span className="font-medium">Status:</span> 
-                    <span className={`ml-2 px-2 py-1 rounded text-xs ${
-                      selectedInvoiceForView.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' :
-                      selectedInvoiceForView.paymentStatus === 'overdue' ? 'bg-red-100 text-red-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {selectedInvoiceForView.paymentStatus?.charAt(0).toUpperCase() + selectedInvoiceForView.paymentStatus?.slice(1)}
-                    </span>
-                  </p>
-                  <p><span className="font-medium">Total Amount:</span> {formatCurrency(selectedInvoiceForView.customerTotal || selectedInvoiceForView.total)}</p>
+       )}
+       
+       {/* Analysis View (Detailed) */}
+       {viewMode === 'analysis' && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+             <div className="p-4 border-b flex justify-between items-center">
+                <div className="flex items-center gap-4">
+                   <h2 className="font-bold text-lg">Profit & Margin Analysis</h2>
+                   <input 
+                      placeholder="Search..." 
+                      className="text-sm p-2 border rounded w-64"
+                      value={analysisSearch}
+                      onChange={e => setAnalysisSearch(e.target.value)}
+                   />
                 </div>
-              </div>
-
-              {/* Customer Info */}
-              <div className="bg-blue-50 rounded-lg p-4">
-                <h3 className="font-medium text-gray-900 mb-2">Customer Information</h3>
-                <div className="space-y-2 text-sm">
-                  <p><span className="font-medium">Name:</span> {selectedInvoiceForView.customerName}</p>
-                  <p><span className="font-medium">Phone:</span> {selectedInvoiceForView.customerPhone}</p>
-                  <p><span className="font-medium">Email:</span> {selectedInvoiceForView.customerEmail || 'N/A'}</p>
-                </div>
-              </div>
-
-              {/* Parts and Labor */}
-              {selectedInvoiceForView.partsOrdered && selectedInvoiceForView.partsOrdered.length > 0 && (
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="font-medium text-gray-900 mb-2">Parts</h3>
-                  <div className="space-y-1 text-sm">
-                    {selectedInvoiceForView.partsOrdered.map((part, idx) => (
-                      <div key={idx} className="flex justify-between">
-                        <span>{part.partName} {part.sku && `(${part.sku})`} (x{part.quantity})</span>
-                        <span>{formatCurrency(part.total)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Labor Charges */}
-              {selectedInvoiceForView.laborCharges && selectedInvoiceForView.laborCharges.length > 0 && (
-                <div className="bg-green-50 rounded-lg p-4">
-                  <h3 className="font-medium text-gray-900 mb-2">Labor Charges</h3>
-                  <div className="space-y-1 text-sm">
-                    {selectedInvoiceForView.laborCharges.map((labor, idx) => (
-                      <div key={idx} className="flex justify-between">
-                        <span>{labor.description} {labor.sku && `(${labor.sku})`}</span>
-                        <span>{formatCurrency(labor.amount)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            <div className="mt-6 flex justify-end space-x-3">
-              <button 
-                onClick={() => setShowViewInvoiceModal(false)}
-                className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-              >
-                Close
-              </button>
-              <button 
-                onClick={() => {
-                  downloadInvoice(selectedInvoiceForView)
-                  setShowViewInvoiceModal(false)
-                }}
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-              >
-                Download PDF
-              </button>
-            </div>
+                <button onClick={() => setViewMode('list')} className="text-gray-500 hover:text-gray-700">Close</button>
+             </div>
+             <div className="overflow-x-auto">
+             <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+                   <tr>
+                      <th className="px-4 py-3">Invoice</th>
+                      <th className="px-4 py-3">Mechanic(s)</th>
+                      <th className="px-4 py-3 text-right">Revenue</th>
+                      <th className="px-4 py-3 text-right">Cost (Parts+Comm)</th>
+                      <th className="px-4 py-3 text-right">Net Profit</th>
+                      <th className="px-4 py-3 text-right">Margin %</th>
+                   </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                   {analysis.items
+                      .filter(i => 
+                         !analysisSearch || 
+                         i.customerName?.toLowerCase().includes(analysisSearch.toLowerCase()) || 
+                         i.invoiceNumber?.toLowerCase().includes(analysisSearch.toLowerCase())
+                      )
+                      .map(i => {
+                        const isReturn = i.invoiceType === 'return_job' || i.parentInvoiceId || i.parentInvoiceNumber;
+                        return (
+                      <tr key={i.id} className={isReturn ? 'bg-purple-50' : ''}>
+                         <td className="px-4 py-3 font-mono">
+                            {i.invoiceNumber}
+                            {isReturn && <span className="ml-2 text-[10px] bg-purple-100 text-purple-700 px-1 rounded font-bold">RETURN</span>}
+                            <div className="text-xs text-gray-500">{i.customerName}</div>
+                         </td>
+                         <td className="px-4 py-3 text-xs">
+                            {(i.mechanics || []).map(m => <div key={m.id}>{m.name} ({formatCurrency(m.commissionAmount)})</div>)}
+                         </td>
+                         <td className="px-4 py-3 text-right font-medium">{formatCurrency(i.customerTotal || i.total)}</td>
+                         <td className="px-4 py-3 text-right text-red-500">{formatCurrency(i.calculatedCost)}</td>
+                         <td className="px-4 py-3 text-right font-bold text-green-600">{formatCurrency(i.calculatedProfit)}</td>
+                         <td className={`px-4 py-3 text-right font-bold ${i.calculatedProfit > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {i.calculatedProfit > 0 ? ((i.calculatedProfit/(i.customerTotal||1))*100).toFixed(0) : 0}%
+                         </td>
+                      </tr>
+                      )
+                   })}
+                </tbody>
+             </table>
+             </div>
           </div>
-        </div>
-      )}
+       )}
 
-      {/* Edit Invoice Modal */}
-      {showEditInvoiceModal && selectedInvoiceForEdit ? (
-        <>
-          {console.log('🟢 EDIT MODAL RENDERING - showEditInvoiceModal:', showEditInvoiceModal, 'selectedInvoiceForEdit:', selectedInvoiceForEdit?.id)}
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
-            <div className="bg-white rounded-lg p-6 w-full max-w-6xl max-h-[90vh] overflow-y-auto m-4">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-semibold text-gray-900">Edit Invoice: {selectedInvoiceForEdit.invoiceNumber}</h2>
-              <button 
-                onClick={() => {
-                  setShowEditInvoiceModal(false)
-                  resetForm()
-                }}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            
-            <div className="space-y-6">
-              {/* Customer Info */}
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h3 className="font-medium mb-2">Customer</h3>
-                <p className="text-sm"><strong>Name:</strong> {selectedCustomer?.name}</p>
-                <p className="text-sm"><strong>Phone:</strong> {selectedCustomer?.phone}</p>
-              </div>
-
-              {/* Vehicle Information */}
-              <div>
-                <h3 className="font-semibold mb-3">Vehicle Information</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    placeholder="Make"
-                    value={vehicleInfo.make}
-                    onChange={(e) => setVehicleInfo({...vehicleInfo, make: e.target.value})}
-                    className="px-3 py-2 border rounded-lg"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Model"
-                    value={vehicleInfo.model}
-                    onChange={(e) => setVehicleInfo({...vehicleInfo, model: e.target.value})}
-                    className="px-3 py-2 border rounded-lg"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Year"
-                    value={vehicleInfo.year}
-                    onChange={(e) => setVehicleInfo({...vehicleInfo, year: e.target.value})}
-                    className="px-3 py-2 border rounded-lg"
-                  />
-                  <input
-                    type="text"
-                    placeholder="License Plate"
-                    value={vehicleInfo.plate}
-                    onChange={(e) => setVehicleInfo({...vehicleInfo, plate: e.target.value})}
-                    className="px-3 py-2 border rounded-lg"
-                  />
-                </div>
-              </div>
-
-              {/* Mechanic & Work Description */}
-              <div>
-                <h3 className="font-semibold mb-3">Work Details</h3>
-                <div className="space-y-3">
-                  <select
-                    value={selectedMechanic?.id || ''}
-                    onChange={(e) => setSelectedMechanic(mechanics.find(m => m.id === e.target.value))}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  >
-                    <option value="">No mechanic assigned</option>
-                    {mechanics.map(mechanic => (
-                      <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>
-                    ))}
-                  </select>
-                  <textarea
-                    value={workDescription}
-                    onChange={(e) => setWorkDescription(e.target.value)}
-                    placeholder="Work description..."
-                    className="w-full px-3 py-2 border rounded-lg h-20"
-                  />
-                </div>
-              </div>
-
-              {/* Parts */}
-              <div>
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-semibold">Parts</h3>
-                  <button
-                    onClick={addManualPart}
-                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                  >
-                    + Add Part
-                  </button>
-                </div>
-                {manualParts.length > 0 ? (
-                  <div className="overflow-x-auto border rounded-lg">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-3 py-2 text-left">SKU</th>
-                          <th className="px-3 py-2 text-left">Part Name</th>
-                          <th className="px-3 py-2 text-left">Qty</th>
-                          <th className="px-3 py-2 text-left">Price</th>
-                          <th className="px-3 py-2 text-left">Total</th>
-                          <th className="px-3 py-2 text-left">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {manualParts.map((part, index) => (
-                          <tr key={index}>
-                            <td className="px-3 py-2">
-                              <input
-                                type="text"
-                                value={part.sku}
-                                onChange={(e) => updateManualPart(index, 'sku', e.target.value)}
-                                placeholder="SKU"
-                                className="w-20 px-2 py-1 border rounded text-xs"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="text"
-                                value={part.partName}
-                                onChange={(e) => updateManualPart(index, 'partName', e.target.value)}
-                                placeholder="Part Name"
-                                className="w-full px-2 py-1 border rounded text-xs"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                value={part.quantity}
-                                onChange={(e) => updateManualPart(index, 'quantity', e.target.value)}
-                                className="w-16 px-2 py-1 border rounded"
-                                min="1"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                value={part.pricePerUnit}
-                                onChange={(e) => updateManualPart(index, 'pricePerUnit', e.target.value)}
-                                className="w-20 px-2 py-1 border rounded"
-                                step="0.01"
-                              />
-                            </td>
-                            <td className="px-3 py-2">{formatCurrency(part.total)}</td>
-                            <td className="px-3 py-2">
-                              <button
-                                onClick={() => removePart(index)}
-                                className="text-red-600 hover:text-red-800 text-xs"
-                              >
-                                Remove
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-sm text-center py-3">No parts</p>
-                )}
-              </div>
-
-              {/* Labor Charges */}
-              <div>
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-semibold">Labor Charges</h3>
-                  <button
-                    onClick={addLaborCharge}
-                    className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
-                  >
-                    + Add Labor
-                  </button>
-                </div>
-                {laborCharges.length > 0 ? (
-                  <div className="space-y-2">
-                    {laborCharges.map((labor, index) => (
-                      <div key={index} className="flex gap-2 items-end text-sm">
-                        <input
-                          type="text"
-                          value={labor.sku}
-                          onChange={(e) => updateLaborCharge(index, 'sku', e.target.value)}
-                          placeholder="SKU"
-                          className="w-24 px-2 py-1 border rounded"
-                        />
-                        <input
-                          type="text"
-                          value={labor.description}
-                          onChange={(e) => updateLaborCharge(index, 'description', e.target.value)}
-                          placeholder="Description"
-                          className="flex-1 px-2 py-1 border rounded"
-                        />
-                        <input
-                          type="number"
-                          value={labor.amount}
-                          onChange={(e) => updateLaborCharge(index, 'amount', parseFloat(e.target.value) || 0)}
-                          placeholder="Amount"
-                          className="w-28 px-2 py-1 border rounded"
-                          step="0.01"
-                          min="0"
-                        />
-                        <button
-                          onClick={() => removeLaborCharge(index)}
-                          className="px-2 py-1 text-red-600 hover:text-red-800"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-sm text-center py-3">No labor charges</p>
-                )}
-              </div>
-
-              {/* Payment Details */}
-              <div>
-                <h3 className="font-semibold mb-3">Payment Details</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm mb-1">Payment Terms (Days)</label>
-                    <input
-                      type="number"
-                      value={paymentTerms}
-                      onChange={(e) => setPaymentTerms(parseInt(e.target.value) || 30)}
-                      className="w-full px-3 py-2 border rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Payment Status</label>
-                    <select
-                      value={paymentStatus}
-                      onChange={(e) => setPaymentStatus(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-lg"
-                    >
-                      <option value="pending">Pending</option>
-                      <option value="paid">Paid</option>
-                      <option value="overdue">Overdue</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Discount (%)</label>
-                    <input
-                      type="number"
-                      value={discount}
-                      onChange={(e) => setDiscount(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
-                      className="w-full px-3 py-2 border rounded-lg"
-                      step="0.1"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Deposit (RM)</label>
-                    <input
-                      type="number"
-                      value={deposit}
-                      onChange={(e) => setDeposit(Math.max(0, parseFloat(e.target.value) || 0))}
-                      className="w-full px-3 py-2 border rounded-lg"
-                      step="0.01"
-                      placeholder="0.00"
-                    />
-                  </div>
-                </div>
-                
-                {/* DirectLending Section in Edit Modal */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-3">
-                  <div className="flex items-center mb-2">
-                    <input
-                      type="checkbox"
-                      id="editUseDirectLending"
-                      checked={useDirectLending}
-                      onChange={(e) => {
-                        setUseDirectLending(e.target.checked)
-                        if (!e.target.checked) {
-                          setDirectLendingAmount(0)
-                        }
-                      }}
-                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                    />
-                    <label htmlFor="editUseDirectLending" className="ml-2 text-sm font-medium text-gray-900">
-                      Customer uses DirectLending
-                    </label>
+       {/* Modals */}
+       {viewInvoice && (
+          showPDF ? (
+            <InvoicePreview 
+                invoice={{
+                    invoiceNumber: viewInvoice.invoiceNumber,
+                    dateCreated: viewInvoice.dateCreated,
+                    customerInfo: {
+                        name: viewInvoice.customerName,
+                        phone: viewInvoice.customerPhone,
+                        email: viewInvoice.customerEmail
+                    },
+                    vehicleInfo: viewInvoice.vehicleInfo || {},
+                    items: [
+                    ...(viewInvoice.partsOrdered || []).map(p => ({
+                        kodProduk: p.sku || 'PART',
+                        namaProduk: p.partName,
+                        quantity: Number(p.quantity),
+                        finalPrice: Number(p.pricePerUnit),
+                        totalPrice: Number(p.total)
+                    })),
+                    ...(viewInvoice.laborCharges || []).map(l => ({
+                        kodProduk: 'LABOR',
+                        namaProduk: l.description,
+                        quantity: 1,
+                        finalPrice: Number(l.amount),
+                        totalPrice: Number(l.amount)
+                    }))
+                    ],
+                    totalAmount: Number(viewInvoice.total || viewInvoice.customerTotal || 0),
+                    deposit: Number(viewInvoice.deposit || 0),
+                    balanceDue: Number(viewInvoice.balanceDue ?? ((viewInvoice.total || viewInvoice.customerTotal || 0) - (viewInvoice.deposit || 0))),
+                    notes: viewInvoice.notes || (viewInvoice.workDescription ? `Work: ${viewInvoice.workDescription}` : '')
+                }} 
+                onClose={() => setShowPDF(false)} 
+                isViewMode={true} 
+            />
+          ) : (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+               <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl my-8 flex flex-col max-h-[90vh] overflow-hidden">
+                  <div className="flex justify-between items-center p-6 border-b bg-gray-50">
+                     <div>
+                        <h2 className="text-2xl font-bold text-gray-800">Invoice: {viewInvoice.invoiceNumber}</h2>
+                        <span className={`text-xs px-2 py-1 rounded font-bold uppercase ${viewInvoice.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{viewInvoice.status || 'Draft'}</span>
+                     </div>
+                     <div className="flex gap-3">
+                         <button onClick={() => setShowPDF(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                            Print Invoice
+                         </button>
+                         <button onClick={() => setViewInvoice(null)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded font-bold hover:bg-gray-300">Close</button>
+                     </div>
                   </div>
                   
-                  {useDirectLending && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        DirectLending Approved Amount (RM)
-                      </label>
-                      <input
-                        type="number"
-                        value={directLendingAmount}
-                        onChange={(e) => setDirectLendingAmount(Math.max(0, parseFloat(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                        min="0"
-                        step="0.01"
-                        placeholder="0.00"
-                      />
-                    </div>
-                  )}
-                </div>
-                
-                <div className="mt-3">
-                  <label className="block text-sm mb-1">Notes</label>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg h-16"
-                  />
-                </div>
-              </div>
+                  <div className="p-6 overflow-y-auto space-y-8 flex-1">
+                      {/* Top Section: Customer, Vehicle, Status */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="p-5 bg-blue-50/50 rounded-lg border border-blue-100">
+                              <h3 className="font-bold text-blue-800 uppercase text-xs mb-3 tracking-wider">Customer Information</h3>
+                              <div className="space-y-1">
+                                  <p className="font-bold text-lg text-gray-900">{viewInvoice.customerName}</p>
+                                  <p className="text-gray-600">{viewInvoice.customerPhone}</p>
+                                  <p className="text-sm text-gray-500">{viewInvoice.customerEmail}</p>
+                              </div>
+                          </div>
+                          <div className="p-5 bg-gray-50 rounded-lg border border-gray-100">
+                              <h3 className="font-bold text-gray-500 uppercase text-xs mb-3 tracking-wider">Vehicle Details</h3>
+                              {viewInvoice.vehicleInfo ? (
+                                  <div className="grid grid-cols-2 gap-4">
+                                      <div>
+                                          <p className="text-xs text-gray-400 uppercase">Make/Model</p>
+                                          <p className="font-bold text-gray-900">{viewInvoice.vehicleInfo.make} {viewInvoice.vehicleInfo.model}</p>
+                                      </div>
+                                      <div>
+                                          <p className="text-xs text-gray-400 uppercase">Start Date</p>
+                                          <p className="font-medium text-gray-900">{new Date(viewInvoice.dateCreated?.seconds ? viewInvoice.dateCreated.seconds * 1000 : viewInvoice.dateCreated).toLocaleDateString()}</p>
+                                      </div>
+                                      <div>
+                                         <p className="text-xs text-gray-400 uppercase">Plate No</p>
+                                         <p className="font-bold text-gray-900">{viewInvoice.vehicleInfo.plate}</p>
+                                      </div>
+                                      <div>
+                                          <p className="text-xs text-gray-400 uppercase">Odometer</p>
+                                          <p className="font-medium text-gray-900">{viewInvoice.vehicleInfo.mileage} km</p>
+                                      </div>
+                                  </div>
+                              ) : <p className="text-gray-400 italic">No vehicle info available</p>}
+                          </div>
+                      </div>
 
-              {/* Mechanic Commission (Internal) */}
-              {selectedMechanic && (
-                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-orange-900 mb-2">
-                    Mechanic Commission (Internal Only)
-                  </h4>
-                  <div className="grid grid-cols-2 gap-3 mb-3">
-                    <div>
-                      <label className="block text-xs mb-1">Type</label>
-                      <select
-                        value={commissionType}
-                        onChange={(e) => setCommissionType(e.target.value)}
-                        className="w-full px-2 py-1 border rounded text-sm"
-                      >
-                        <option value="percentage">Percentage (%)</option>
-                        <option value="fixed">Fixed Amount (RM)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs mb-1">Value</label>
-                      <input
-                        type="number"
-                        value={commissionValue}
-                        onChange={(e) => setCommissionValue(parseFloat(e.target.value) || 0)}
-                        className="w-full px-2 py-1 border rounded text-sm"
-                        min="0"
-                        step={commissionType === 'percentage' ? '0.1' : '0.01'}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center pt-2 border-t border-orange-200">
-                    <span className="text-sm font-medium">Commission:</span>
-                    <span className="text-lg font-bold text-orange-600">
-                      {formatCurrency(commissionAmount)}
-                    </span>
-                  </div>
-                </div>
-              )}
+                      {/* Line Items Table */}
+                      <div>
+                          <h3 className="font-bold text-lg mb-4 text-gray-800 border-b pb-2">Service Breakdown</h3>
+                          <table className="w-full text-left text-sm">
+                              <thead className="bg-gray-100 text-gray-600 uppercase text-xs">
+                                  <tr>
+                                      <th className="p-3 rounded-l">Description</th>
+                                      <th className="p-3 text-center">Type</th>
+                                      <th className="p-3 text-right">Qty</th>
+                                      <th className="p-3 text-right">Unit Price</th>
+                                      <th className="p-3 text-right rounded-r">Total</th>
+                                  </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                  {(viewInvoice.partsOrdered || []).map((p, idx) => (
+                                      <tr key={`p-${idx}`}>
+                                          <td className="p-3 font-medium text-gray-800">{p.partName}<div className="text-xs text-gray-400 font-mono mt-0.5">{p.sku}</div></td>
+                                          <td className="p-3 text-center"><span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-xs border border-blue-100 font-medium">Part</span></td>
+                                          <td className="p-3 text-right text-gray-600">{p.quantity}</td>
+                                          <td className="p-3 text-right text-gray-600">{formatCurrency(p.pricePerUnit)}</td>
+                                          <td className="p-3 text-right font-bold text-gray-900">{formatCurrency(p.total)}</td>
+                                      </tr>
+                                  ))}
+                                  {(viewInvoice.laborCharges || []).map((l, idx) => (
+                                      <tr key={`l-${idx}`}>
+                                          <td className="p-3 font-medium text-gray-800">{l.description}</td>
+                                          <td className="p-3 text-center"><span className="px-2 py-0.5 bg-green-50 text-green-600 rounded text-xs border border-green-100 font-medium">Labor</span></td>
+                                          <td className="p-3 text-right text-gray-600">1</td>
+                                          <td className="p-3 text-right text-gray-600">{formatCurrency(l.amount)}</td>
+                                          <td className="p-3 text-right font-bold text-gray-900">{formatCurrency(l.amount)}</td>
+                                      </tr>
+                                  ))}
+                                  {(!viewInvoice.partsOrdered?.length && !viewInvoice.laborCharges?.length) && (
+                                     <tr><td colSpan="5" className="p-8 text-center text-gray-400 italic">No line items found.</td></tr>
+                                  )}
+                              </tbody>
+                          </table>
+                      </div>
 
-              {/* Totals Summary */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Parts Total:</span>
-                    <span className="font-medium">{formatCurrency(calculateTotals().partsTotal)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Labor Total:</span>
-                    <span className="font-medium">{formatCurrency(calculateTotals().laborTotal)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Subtotal:</span>
-                    <span className="font-medium">{formatCurrency(calculateTotals().subtotal)}</span>
-                  </div>
-                  {discount > 0 && (
-                    <div className="flex justify-between text-sm text-green-600">
-                      <span>Discount ({discount}%):</span>
-                      <span>-{formatCurrency(calculateTotals().discountAmount)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-lg font-bold border-t pt-2">
-                    <span>Total:</span>
-                    <span className="text-red-600">{formatCurrency(calculateTotals().total)}</span>
-                  </div>
-                  {deposit > 0 && (
-                    <>
-                      <div className="flex justify-between text-sm text-blue-600">
-                        <span>Deposit Paid:</span>
-                        <span>-{formatCurrency(calculateTotals().deposit)}</span>
+                      {/* Financial Summary */}
+                      <div className="flex flex-col md:flex-row justify-between gap-8 pt-4 border-t">
+                          <div className="flex-1 bg-slate-50 p-4 rounded border border-slate-100">
+                             <h4 className="font-bold text-slate-500 uppercase text-xs mb-3 tracking-wider">Internal Operations</h4>
+                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                                 <div>
+                                    <span className="block text-slate-400 text-xs">Assigned Mechanics</span>
+                                    <span className="block font-medium text-slate-700">{(viewInvoice.mechanics || []).map(m=>m.name).join(', ') || 'None'}</span>
+                                 </div>
+                                 {/* Internal Calcs computed on the fly since they might not be stored in raw object */}
+                                 {(() => {
+                                     const revenue = Number(viewInvoice.total || viewInvoice.customerTotal || 0)
+                                     const cost = (Number(viewInvoice.partsSupplierCost) || 0) + (Number(viewInvoice.commissionAmount) || 0)
+                                     const profit = revenue - cost
+                                     const margin = revenue ? (profit / revenue * 100) : 0
+                                     
+                                     return (
+                                        <>
+                                         <div>
+                                            <span className="block text-slate-400 text-xs">Total Cost (Parts+Comm)</span>
+                                            <span className="block font-semibold text-red-600">{formatCurrency(cost)}</span>
+                                         </div>
+                                         <div>
+                                            <span className="block text-slate-400 text-xs">Net Profit</span>
+                                            <span className="block font-semibold text-green-600">{formatCurrency(profit)}</span>
+                                         </div>
+                                          <div>
+                                            <span className="block text-slate-400 text-xs">Margin</span>
+                                            <span className={`block font-bold ${profit > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                               {margin.toFixed(1)}%
+                                            </span>
+                                         </div>
+                                        </>
+                                     )
+                                 })()}
+                             </div>
+                          </div>
+                      
+                          <div className="w-full md:w-80 space-y-3 bg-white p-4 rounded border shadow-sm">
+                               <div className="flex justify-between text-gray-600"><span>Subtotal</span> <span>{formatCurrency(viewInvoice.total || viewInvoice.customerTotal)}</span></div>
+                               <div className="flex justify-between text-gray-600"><span>Deposit Paid</span> <span className="text-red-500">-{formatCurrency(viewInvoice.deposit || 0)}</span></div>
+                               <div className="border-t pt-2 mt-2">
+                                  <div className="flex justify-between items-baseline mb-1">
+                                     <span className="text-sm font-bold text-gray-700 uppercase tracking-wide">Balance Due</span> 
+                                     <span className="text-2xl font-bold text-gray-900">{formatCurrency((viewInvoice.total || viewInvoice.customerTotal) - (viewInvoice.deposit || 0))}</span>
+                                  </div>
+                               </div>
+                          </div>
                       </div>
-                      <div className="flex justify-between text-lg font-bold text-orange-600 border-t pt-2">
-                        <span>Balance Due:</span>
-                        <span>{formatCurrency(calculateTotals().balanceDue)}</span>
-                      </div>
-                    </>
-                  )}
-                  {useDirectLending && (
-                    <>
-                      <div className="flex justify-between text-sm text-purple-600">
-                        <span>DirectLending:</span>
-                        <span>-{formatCurrency(calculateTotals().directLendingAmount)}</span>
-                      </div>
-                      <div className="flex justify-between text-lg font-bold text-green-600 border-t pt-2">
-                        <span>Customer Payable:</span>
-                        <span>{formatCurrency(calculateTotals().customerPayableAmount)}</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-              
-              <div className="flex justify-end space-x-4 pt-4 border-t">
-                <button 
-                  onClick={() => {
-                    setShowEditInvoiceModal(false)
-                    resetForm()
-                  }}
-                  disabled={isSaving}
-                  className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:bg-gray-400"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleUpdateInvoice}
-                  disabled={isSaving}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400"
-                >
-                  {isSaving ? 'Updating...' : 'Update Invoice'}
-                </button>
-              </div>
+                      
+                  </div>
+               </div>
             </div>
+         )
+       )}
+
+       {showCustomerModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+             <div className="bg-white rounded-xl shadow-xl w-full max-w-md h-96 flex flex-col p-4">
+                <div className="flex justify-between mb-2"><h3 className="font-bold">Select Customer</h3><button onClick={() => setShowCustomerModal(false)}>x</button></div>
+                <input autoFocus placeholder="Search..." className="p-2 border rounded mb-2" value={customerSearchTerm} onChange={e => setCustomerSearchTerm(e.target.value)} />
+                <div className="flex-1 overflow-y-auto">
+                   {customers.filter(c => c.name?.toLowerCase().includes(customerSearchTerm.toLowerCase())).map(c => (
+                      <div key={c.id} onClick={() => { setSelectedCustomer(c); setShowCustomerModal(false)}} className="p-3 border-b hover:bg-gray-50 cursor-pointer">{c.name}</div>
+                   ))}
+                </div>
+             </div>
           </div>
-        </div>
-        </>
-      ) : (
-        console.log('🔴 EDIT MODAL NOT SHOWN - showEditInvoiceModal:', showEditInvoiceModal, 'selectedInvoiceForEdit:', selectedInvoiceForEdit?.id || 'null')
-      )}
+       )}
 
-      {/* Customer Selection Modal */}
-      {showCustomerModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Select Customer</h2>
-              <button 
-                onClick={() => setShowCustomerModal(false)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
+       {paymentLinkModal.show && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+             <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 text-center">
+                <h3 className="font-bold text-lg mb-4">Payment Link</h3>
+                {paymentLinkModal.url ? (
+                   <div className="space-y-4">
+                      <p className="text-xs bg-green-50 text-green-700 p-2 rounded break-all">{paymentLinkModal.url}</p>
+                      
+                      <div className="flex gap-2">
+                        <button onClick={() => window.open(paymentLinkModal.url)} className="flex-1 py-3 bg-green-600 text-white rounded font-bold hover:bg-green-700 transition">
+                            Open Link
+                        </button>
+                        <button onClick={() => {
+                            // Copy to clipboard
+                            navigator.clipboard.writeText(paymentLinkModal.url);
+                            alert("Link copied!");
+                        }} className="px-4 py-3 bg-gray-100 text-gray-700 rounded font-bold hover:bg-gray-200" title="Copy">
+                            📋
+                        </button>
+                      </div>
 
-            <input
-              type="text"
-              placeholder="Search customers by name or phone..."
-              value={customerSearchTerm}
-              onChange={(e) => setCustomerSearchTerm(e.target.value)}
-              className="w-full px-4 py-2 border rounded-lg mb-4"
-            />
+                      {/* Manual Regeneration Option */}
+                      <div className="pt-4 border-t border-gray-100">
+                          <p className="text-xs text-gray-400 mb-2">Need a different amount or new link?</p>
+                          <button onClick={() => setPaymentLinkModal({...paymentLinkModal, url: null})} className="w-full py-2 bg-white text-blue-600 border border-blue-200 rounded font-bold text-sm hover:bg-blue-50">
+                              Create {paymentLinkModal.invoice.depositStatus?.includes('paid') ? 'Balance' : 'New'} Link
+                          </button>
+                      </div>
 
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {filteredCustomers.length > 0 ? (
-                filteredCustomers.map(customer => (
-                  <div
-                    key={customer.id}
-                    onClick={() => {
-                      setSelectedCustomer(customer)
-                      setShowCustomerModal(false)
-                      setCustomerSearchTerm('')
-                    }}
-                    className="p-4 border rounded-lg hover:bg-blue-50 cursor-pointer"
-                  >
-                    <p className="font-medium">{customer.name}</p>
-                    <p className="text-sm text-gray-600">{customer.phone}</p>
-                    {customer.email && <p className="text-sm text-gray-600">{customer.email}</p>}
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-gray-500 py-8">No customers found</p>
-              )}
-            </div>
+                      <button onClick={() => setPaymentLinkModal({...paymentLinkModal, show: false})} className="w-full text-gray-500 mt-2">Close</button>
+                      
+                      {!paymentLinkModal.confirmed && paymentLinkModal.invoice.depositStatus !== 'paid_link' && (
+                         <div className="bg-yellow-50 p-2 rounded text-xs text-left mt-2">
+                            <p className="font-bold">Admin Verification:</p>
+                            <p className="mb-2">Did customer pay via this link?</p>
+                            <button onClick={() => { confirmDepositPaid(paymentLinkModal.invoice); setPaymentLinkModal(false) }} className="w-full py-1 bg-yellow-400 font-bold rounded">Yes, Mark Deposit Paid</button>
+                         </div>
+                      )}
+                   </div>
+                ) : (
+                   <div className="space-y-4">
+                      <div className="flex flex-col items-center">
+                         <label className="text-xs font-bold text-gray-500 uppercase mb-1">Amount to Collect (RM)</label>
+                         <input 
+                             type="number" 
+                             value={paymentLinkModal.amount} 
+                             onChange={e => setPaymentLinkModal({...paymentLinkModal, amount: e.target.value})}
+                             className="text-3xl font-bold w-full text-center border-b-2 border-gray-200 focus:outline-none focus:border-blue-600 py-2"
+                             placeholder="0.00"
+                         />
+                      </div>
+                      {paymentLinkModal.error && <p className="text-xs text-red-500">{paymentLinkModal.error}</p>}
+                      <button onClick={generateLink} disabled={paymentLinkModal.loading || !paymentLinkModal.amount} className="w-full py-3 bg-blue-600 text-white rounded font-bold disabled:opacity-50">{paymentLinkModal.loading?'Generating...':'Generate Link'}</button>
+                      <button onClick={() => setPaymentLinkModal({...paymentLinkModal, show: false})} className="w-full text-gray-500">Cancel</button>
+                   </div>
+                )}
+             </div>
           </div>
-        </div>
-      )}
+       )}
+       
+       <style>{`.input-std { width: 100%; padding: 0.5rem; border: 1px solid #e5e7eb; border-radius: 0.5rem; } .input-sm { padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; border-radius: 0.25rem; }`}</style>
     </div>
   )
 }
 
 export default CustomerInvoiceCreation
-

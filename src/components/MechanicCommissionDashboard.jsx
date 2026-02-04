@@ -71,6 +71,74 @@ function MechanicCommissionDashboard() {
     const mechanicGroups = {}
     
     invoices.forEach(invoice => {
+      // ----------------------------------------------------------------
+      // STRATEGY 1: NEW "Commission 2.0" Format (Array of Mechanics)
+      // ----------------------------------------------------------------
+      if (invoice.mechanics && Array.isArray(invoice.mechanics) && invoice.mechanics.length > 0) {
+          invoice.mechanics.forEach(m => {
+              const mechanicName = m.name || 'Unknown'
+              const mechanicId = m.id || 'unknown'
+              const memberCommission = Number(m.commissionAmount) || 0
+              
+              if (!mechanicGroups[mechanicName]) {
+                  mechanicGroups[mechanicName] = {
+                      id: mechanicId,
+                      name: mechanicName,
+                      invoices: [],
+                      totalRevenue: 0,
+                      totalCommission: 0,
+                      paidCommission: 0,
+                      pendingCommission: 0,
+                      invoiceCount: 0,
+                      paidInvoices: 0,
+                      pendingInvoices: 0,
+                      individualCommissions: 0,
+                      teamCommissions: 0, // Not really relevant in 2.0, but keep for structure
+                      totalPartsRevenue: 0,
+                      totalLabour: 0,
+                      teamInvoices: 0
+                  }
+              }
+
+              // In 2.0, "Revenue" per mechanic is ambiguous if shared. 
+              // We can attribute FULL revenue to everyone (double counting?) or split it.
+              // For simplicity, we attribute the full invoice revenue to the mechanic's record 
+              // so they see "I worked on update of RM5000 job". 
+              // But for TOTAL summaries, this might double count.
+              // Dashboard usually shows "My Performance".
+              
+              mechanicGroups[mechanicName].invoices.push({
+                  ...invoice,
+                  memberCommission,
+                  isTeamInvoice: invoice.mechanics.length > 1
+              })
+
+              mechanicGroups[mechanicName].totalCommission += memberCommission
+              mechanicGroups[mechanicName].individualCommissions += memberCommission // Treat all as individual/earned
+              
+              // Only count revenue once per invoice? No, mechanics usually want to see "Total Job Value"
+              // But for "Total Revenue" of shop, this is bad. 
+              // BUT this is "Mechanic Commission Dashboard", not "Shop Revenue".
+              // Let's stick to full invoice value association.
+              mechanicGroups[mechanicName].totalRevenue += (invoice.total || 0)
+              
+              mechanicGroups[mechanicName].invoiceCount += 1
+              if (invoice.mechanics.length > 1) mechanicGroups[mechanicName].teamInvoices += 1
+
+              if (invoice.paymentStatus === 'paid') {
+                  mechanicGroups[mechanicName].paidInvoices += 1
+                  mechanicGroups[mechanicName].paidCommission += memberCommission
+              } else {
+                  mechanicGroups[mechanicName].pendingInvoices += 1
+                  mechanicGroups[mechanicName].pendingCommission += memberCommission
+              }
+          })
+          return; // Done with this invoice
+      }
+
+      // ----------------------------------------------------------------
+      // STRATEGY 2: Legacy Formats
+      // ----------------------------------------------------------------
       const commissionAmount = invoice.commissionAmount || 0
       const distributionType = invoice.commissionDistributionType || 'individual'
       
@@ -132,6 +200,9 @@ function MechanicCommissionDashboard() {
       } else {
         // Handle individual distribution (original logic)
         const mechanicName = invoice.mechanicName || 'Unknown'
+        // Skip if no mechanic name and no mechanics array (Zombie invoice)
+        if (!invoice.mechanicName && !invoice.mechanics) return;
+
         const mechanicId = invoice.mechanicId || 'unknown'
         
         if (!mechanicGroups[mechanicName]) {
@@ -176,6 +247,7 @@ function MechanicCommissionDashboard() {
       }
     })
 
+    console.log("Calculated Groups:", mechanicGroups)
     return Object.values(mechanicGroups)
   }
 

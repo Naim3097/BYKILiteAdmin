@@ -306,7 +306,8 @@ export const createCustomerInvoice = async (invoiceData) => {
     })
     
     console.log('✅ Invoice created:', invoiceNumber, 'with ID:', docRef.id)
-    return docRef.id
+    // Return both ID and Number so UI can use them immediately (e.g. for Payment Links)
+    return { id: docRef.id, invoiceNumber }
   } catch (error) {
     console.error('Error creating customer invoice:', error)
     throw error

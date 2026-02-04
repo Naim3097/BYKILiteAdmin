@@ -47,6 +47,7 @@ function EditInvoiceModal({ invoice, onClose, onSuccess }) {
   const [notes, setNotes] = useState('')
   const [showPartsSelector, setShowPartsSelector] = useState(false)
   const [showStockSummary, setShowStockSummary] = useState(false)
+  const [totalPartsSupplierCost, setTotalPartsSupplierCost] = useState(0)
   const [isSaving, setIsSaving] = useState(false)
   const [localValidation, setLocalValidation] = useState({ errors: [], warnings: [] })
 
@@ -65,6 +66,7 @@ function EditInvoiceModal({ invoice, onClose, onSuccess }) {
           address: '15-G, JLN SG RASAU, KG SG RASAU, 42700 BANTING, SELANGOR'
         })
         setNotes(session.currentInvoice.notes || '')
+        setTotalPartsSupplierCost(session.currentInvoice.partsSupplierCost || session.currentInvoice.totalPartsSupplierCost || 0)
         console.log('🔧 State initialized with parts:', session.currentInvoice.items.length)
       } else {
         console.error('❌ Failed to start edit session!')
@@ -91,12 +93,14 @@ function EditInvoiceModal({ invoice, onClose, onSuccess }) {
         items: selectedParts,
         customerInfo,
         notes,
+        partsSupplierCost: totalPartsSupplierCost, // Ensure DB field match
+        totalPartsSupplierCost, // Keep state field
         subtotal: calculateSubtotal(),
         totalAmount: calculateTotal()
       }
       updateEdit(updatedInvoice, parts)
     }
-  }, [selectedParts, customerInfo, notes, parts, editSession, updateEdit, validateStockChanges])
+  }, [selectedParts, customerInfo, notes, totalPartsSupplierCost, parts, editSession, updateEdit, validateStockChanges])
 
   // Validate changes when data changes
   useEffect(() => {
@@ -436,6 +440,35 @@ function EditInvoiceModal({ invoice, onClose, onSuccess }) {
               className="input-field h-20 resize-none"
               placeholder="Additional notes for this invoice..."
             />
+          </div>
+
+          {/* Internal Cost Management */}
+          <div className="card bg-gray-50 border border-black-10">
+             <div className="flex items-center gap-2 mb-4">
+                <span className="text-lg opacity-75">🔒</span>
+                <h4 className="font-semibold text-primary-black">Internal Cost Management</h4>
+             </div>
+             <div>
+                <label className="block text-sm font-medium text-black-75 mb-2">
+                   Total Parts Cost (Supplier)
+                </label>
+                <div className="relative rounded-md shadow-sm">
+                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <span className="text-gray-500 sm:text-sm">RM</span>
+                   </div>
+                   <input
+                      type="number"
+                      step="0.01"
+                      className="input-field pl-12 bg-white"
+                      value={totalPartsSupplierCost || ''}
+                      onChange={(e) => setTotalPartsSupplierCost(parseFloat(e.target.value) || 0)}
+                      placeholder="0.00"
+                   />
+                </div>
+                <p className="mt-1 text-xs text-black-50 font-medium">
+                   For job profitability tracking. Visible to admins only.
+                </p>
+             </div>
           </div>
 
           {/* Invoice Summary */}

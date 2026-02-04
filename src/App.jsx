@@ -1,7 +1,8 @@
 import { useState, useEffect, Suspense, lazy } from 'react'
 import Header from './components/Header'
-import Navigation from './components/Navigation'
+import Sidebar from './components/Sidebar'
 import LoginScreen from './components/LoginScreen'
+import PaymentReceipt from './components/PaymentReceipt'
 import { PartsProvider } from './context/PartsContext'
 import { InvoiceProvider } from './context/InvoiceContext'
 import { CustomerProvider } from './context/CustomerContext'
@@ -41,21 +42,65 @@ const LoadingSpinner = () => (
   </div>
 )
 
+const SECTION_TITLES = {
+  'parts': 'Parts Management',
+  'invoice': 'Create Invoice',
+  'history': 'Invoice History',
+  'customers': 'Customer Database',
+  'quotation': 'Quotation Management',
+  'customer-invoicing': 'Billing & Invoicing',
+  'accounting': 'Financial Accounting',
+  'mechanic-commissions': 'Mechanic Commissions',
+  'car-status': 'Car Repair Status',
+  'hr-dashboard': 'HR Dashboard',
+  'employee-management': 'Employee Management',
+  'attendance-tracking': 'Attendance Tracking',
+  'leave-management': 'Leave Management',
+  'payroll-management': 'Payroll Processing',
+  'performance-reviews': 'Performance Reviews'
+}
+
 // Main App Content Component (after authentication)
 function App() {
   const [activeSection, setActiveSection] = useState('parts')
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [isPaymentCallback, setIsPaymentCallback] = useState(false)
 
   useEffect(() => {
+    // Check URL params first - Before Auth
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('payment_status') && params.get('invoice')) {
+        setIsPaymentCallback(true)
+        setLoading(false)
+        return // Skip auth check if we are showing receipt
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user)
       setLoading(false)
       console.log('🔐 Auth state changed:', user ? 'Logged in' : 'Logged out')
     })
-
+    
     return unsubscribe
   }, [])
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+         <LoadingSpinner />
+      </div>
+    )
+  }
+
+  if (isPaymentCallback) {
+      return (
+          <Suspense fallback={<LoadingSpinner />}>
+              <PaymentReceipt />
+          </Suspense>
+      )
+  }
 
   const handleLogout = async () => {
     try {
@@ -69,10 +114,10 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-primary-white flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="loading-spinner mb-4"></div>
-          <p className="text-black-75">Loading system...</p>
+          <p className="text-gray-500">Loading system...</p>
         </div>
       </div>
     )
@@ -84,7 +129,7 @@ function App() {
 
   const renderActiveSection = () => {
     switch (activeSection) {
-      // EXISTING SECTIONS (PRESERVED EXACTLY)
+      // EXISTING SECTIONS
       case 'parts':
         return <PartsManagement />
       case 'invoice':
@@ -133,16 +178,36 @@ function App() {
             <RepairOrderProvider>
               <EmployeeProvider>
                 <DataJoinProvider>
-                  <div className="min-h-screen bg-primary-white">
-                    <Header onLogout={handleLogout} />
-                    <Navigation activeSection={activeSection} setActiveSection={setActiveSection} />
-                    <main className="container mx-auto px-2 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 max-w-7xl">
-                      <Suspense fallback={<LoadingSpinner />}>
-                        <div className="fade-in">
-                          {renderActiveSection()}
-                        </div>
-                      </Suspense>
-                    </main>
+                  <div className="flex h-screen bg-gray-50 overflow-hidden font-sans text-gray-900">
+                    
+                    {/* Sidebar Navigation */}
+                    <Sidebar 
+                      activeSection={activeSection} 
+                      setActiveSection={setActiveSection}
+                      isMobileOpen={isMobileSidebarOpen}
+                      setIsMobileOpen={setIsMobileSidebarOpen}
+                    />
+
+                    {/* Main Content Area */}
+                    <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                      
+                      {/* Top Header */}
+                      <Header 
+                        onLogout={handleLogout} 
+                        onToggleSidebar={() => setIsMobileSidebarOpen(true)}
+                        title={SECTION_TITLES[activeSection]}
+                      />
+                      
+                      {/* Scrollable Page Content */}
+                      <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+                        <Suspense fallback={<LoadingSpinner />}>
+                          <div className="fade-in max-w-7xl mx-auto">
+                            {renderActiveSection()}
+                          </div>
+                        </Suspense>
+                      </main>
+                    </div>
+
                   </div>
                 </DataJoinProvider>
               </EmployeeProvider>

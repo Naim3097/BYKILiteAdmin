@@ -8,25 +8,17 @@ import { usePartsContext } from '../context/PartsContext'
 import AtomicOperations from '../utils/AtomicOperations'
 
 function SimpleEditInvoiceModal({ invoice, onClose, onSuccess }) {
-  console.log('🟢 SimpleEditInvoiceModal RENDERING')
-  console.log('🟢 Invoice prop:', invoice?.invoiceNumber, invoice?.id)
-  console.log('🟢 Invoice items:', invoice?.items?.length)
-  
   const { parts } = usePartsContext()
   const [selectedParts, setSelectedParts] = useState([])
   const [customerInfo, setCustomerInfo] = useState({})
   const [notes, setNotes] = useState('')
+  const [totalPartsSupplierCost, setTotalPartsSupplierCost] = useState(0)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState(null)
   
-  console.log('🟢 Parts loaded:', parts?.length)
-  console.log('🟢 State - selectedParts:', selectedParts.length)
-
   // Initialize form data from invoice
   useEffect(() => {
-    console.log('🟢 useEffect triggered - invoice:', invoice?.id)
     if (invoice) {
-      console.log('🟢 Setting selectedParts:', invoice.items?.length, 'items')
       setSelectedParts(invoice.items || [])
       setCustomerInfo(invoice.customerInfo || {
         name: 'One X Transmission',
@@ -34,7 +26,8 @@ function SimpleEditInvoiceModal({ invoice, onClose, onSuccess }) {
         address: '15-G, JLN SG RASAU, KG SG RASAU, 42700 BANTING, SELANGOR'
       })
       setNotes(invoice.notes || '')
-      console.log('🟢 Form initialization complete')
+      // Initialize from either field to be safe
+      setTotalPartsSupplierCost(invoice.partsSupplierCost || invoice.totalPartsSupplierCost || 0)
     }
   }, [invoice])
 
@@ -86,6 +79,8 @@ function SimpleEditInvoiceModal({ invoice, onClose, onSuccess }) {
         items: selectedParts,
         customerInfo,
         notes,
+        partsSupplierCost: totalPartsSupplierCost, // Ensure this matches DB schema used in CustomerInvoiceCreation
+        totalPartsSupplierCost, // Keep for backward compatibility/state hydration
         subtotal,
         totalAmount: total,
         lastModified: new Date().toISOString()
@@ -117,17 +112,14 @@ function SimpleEditInvoiceModal({ invoice, onClose, onSuccess }) {
   }
 
   if (!invoice) {
-    console.log('🔴 NO INVOICE - RETURNING NULL')
     return null
   }
-
-  console.log('🟢 RENDERING MODAL JSX')
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content max-w-4xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div className="border-b border-black-25 p-4 sm:p-6">
+        <div className="border-b border-black-25 p-4 sm:p-6 bg-primary-white">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xl font-semibold text-primary-black">
@@ -155,6 +147,35 @@ function SimpleEditInvoiceModal({ invoice, onClose, onSuccess }) {
               <div className="text-sm text-black-75 mt-1">{error}</div>
             </div>
           )}
+
+          {/* Internal Cost Management */}
+          <div className="card bg-gray-50 border border-black-10">
+             <div className="flex items-center gap-2 mb-4">
+                <span className="text-lg opacity-75">🔒</span>
+                <h4 className="font-semibold text-primary-black">Internal Cost Management</h4>
+             </div>
+             <div>
+                <label className="block text-sm font-medium text-black-75 mb-2">
+                   Total Parts Cost (Supplier)
+                </label>
+                <div className="relative rounded-md shadow-sm">
+                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <span className="text-gray-500 sm:text-sm">RM</span>
+                   </div>
+                   <input
+                      type="number"
+                      step="0.01"
+                      className="input-field pl-12 bg-white"
+                      value={totalPartsSupplierCost || ''}
+                      onChange={(e) => setTotalPartsSupplierCost(parseFloat(e.target.value) || 0)}
+                      placeholder="0.00"
+                   />
+                </div>
+                <p className="mt-1 text-xs text-black-50 font-medium">
+                   For job profitability tracking. Visible to admins only.
+                </p>
+             </div>
+          </div>
 
           {/* Customer Info */}
           <div className="card">

@@ -21,15 +21,11 @@ function CarStatus() {
 
   // Firestore connection to byki_status collection
   useEffect(() => {
-    console.log('🚀 Setting up byki_status collection listener...')
-    
     try {
       const bykiStatusRef = collection(db, 'byki_status')
       const bykiStatusQuery = query(bykiStatusRef, orderBy('createdAt', 'desc'))
       
       const unsubscribe = onSnapshot(bykiStatusQuery, (snapshot) => {
-        console.log('📊 byki_status data received:', snapshot.size, 'documents')
-        
         const statusData = []
         snapshot.forEach((doc) => {
           const data = doc.data()
@@ -42,25 +38,17 @@ function CarStatus() {
         setBykiStatusData(statusData)
         setIsLoadingBykiStatus(false)
         setBykiStatusError(null)
-        
-        console.log('✅ byki_status data processed:', statusData.length, 'records')
-        
-        // Log sample data structure (for development purposes)
-        if (statusData.length > 0) {
-          console.log('📝 Sample byki_status document structure:', statusData[0])
-        }
       }, (error) => {
-        console.error('❌ Error loading byki_status collection:', error)
+        console.error(' Error loading byki_status collection:', error)
         setBykiStatusError(error.message)
         setIsLoadingBykiStatus(false)
       })
       
       return () => {
-        console.log('🔌 Disconnecting from byki_status collection')
         unsubscribe()
       }
     } catch (error) {
-      console.error('❌ Error setting up byki_status listener:', error)
+      console.error(' Error setting up byki_status listener:', error)
       setBykiStatusError(error.message)
       setIsLoadingBykiStatus(false)
     }
@@ -74,10 +62,10 @@ function CarStatus() {
     
     if (searchTerm) {
       filtered = filtered.filter(order => 
-        order.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.vehicleInfo?.make?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.vehicleInfo?.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.vehicleInfo?.licensePlate?.toLowerCase().includes(searchTerm.toLowerCase())
+        (order.customerName && order.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (order.vehicleInfo?.make && order.vehicleInfo.make.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (order.vehicleInfo?.model && order.vehicleInfo.model.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (order.vehicleInfo?.licensePlate && order.vehicleInfo.licensePlate.toLowerCase().includes(searchTerm.toLowerCase()))
       )
     }
     
@@ -97,15 +85,28 @@ function CarStatus() {
     ]
     
     const index = statusOrder.indexOf(status)
+    if (index === -1) return 0
     return ((index + 1) / statusOrder.length) * 100
+  }
+  
+  // Define status colors for badges (Tailwind classes)
+  const getStatusBadgeColor = (status) => {
+    switch (status) {
+      case REPAIR_STATUSES.NOT_STARTED: return 'bg-gray-100 text-gray-700 border-gray-200';
+      case REPAIR_STATUSES.UNDER_INSPECTION: return 'bg-blue-50 text-blue-700 border-blue-200';
+      case REPAIR_STATUSES.INSPECTION_COMPLETED: return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      case REPAIR_STATUSES.REPAIR_ONGOING: return 'bg-orange-50 text-orange-700 border-orange-200';
+      case REPAIR_STATUSES.READY_FOR_PICKUP: return 'bg-green-50 text-green-700 border-green-200';
+      default: return 'bg-gray-100 text-gray-700 border-gray-200';
+    }
   }
 
   if (isLoadingOrders) {
     return (
-      <div className="space-y-6">
-        <div className="bg-primary-white rounded-lg border border-black-10 p-8 text-center">
-          <div className="loading-spinner mb-4"></div>
-          <p className="text-black-75">Loading car status information...</p>
+      <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-2"></div>
+          <p className="text-gray-500 font-medium">Loading Workshop Data...</p>
         </div>
       </div>
     )
@@ -113,225 +114,173 @@ function CarStatus() {
 
   if (orderError) {
     return (
-      <div className="space-y-6">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-          <p className="text-red-600">Error loading repair orders: {orderError}</p>
-          <button 
-            onClick={() => window.location.reload()}
-            className="mt-4 btn-primary"
-          >
-            Retry
-          </button>
-        </div>
+      <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center max-w-lg mx-auto mt-10">
+        <p className="text-red-700 font-medium mb-2">Unable to load data</p>
+        <p className="text-red-600 text-sm mb-4">{orderError}</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 bg-white border border-red-300 text-red-700 rounded-lg hover:bg-red-50 font-medium text-sm"
+        >
+          Try Again
+        </button>
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-primary-black">Car Status</h2>
-          <p className="text-black-75 text-sm sm:text-base">
-            Track ongoing repairs and service status • {repairOrders.length} total cars
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 border border-black-25 rounded-lg focus:ring-2 focus:ring-primary-red focus:border-primary-red"
-          >
-            <option value="all">All Status ({repairOrders.length})</option>
-            {Object.entries(STATUS_LABELS).map(([status, label]) => (
-              <option key={status} value={status}>
-                {label} ({statusCounts[status] || 0})
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Firestore Integration Status - Development Info */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-center gap-3">
-          <div className={`w-3 h-3 rounded-full ${
-            isLoadingBykiStatus ? 'bg-yellow-500 animate-pulse' : 
-            bykiStatusError ? 'bg-red-500' : 'bg-green-500'
-          }`}></div>
-          <div className="flex-1">
-            <p className="font-medium text-blue-800">Firestore Integration Status</p>
-            <p className="text-sm text-blue-700">
-              {isLoadingBykiStatus ? 'Connecting to byki_status collection...' :
-               bykiStatusError ? `Connection error: ${bykiStatusError}` :
-               `Connected to byki_status collection • ${bykiStatusData.length} records available`}
-            </p>
-            {!isLoadingBykiStatus && !bykiStatusError && (
-              <p className="text-xs text-blue-600 mt-1">
-                Data structure ready for implementation • Fields awaiting finalization
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Status Overview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6">
+      
+      {/* Overview Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
         {Object.entries(STATUS_LABELS).map(([status, label]) => (
-          <div 
-            key={status}
-            className="bg-primary-white rounded-lg border border-black-10 p-4 cursor-pointer hover:shadow-lg transition-shadow"
-            onClick={() => setSelectedStatus(selectedStatus === status ? 'all' : status)}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-black-50 text-xs uppercase tracking-wide">{label}</p>
-                <p className="text-2xl font-bold text-primary-black">
-                  {statusCounts[status] || 0}
-                </p>
-              </div>
-              <div className={`p-2 rounded-full ${STATUS_COLORS[status]}`}>
-                {status === REPAIR_STATUSES.NOT_STARTED && (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                )}
-                {status === REPAIR_STATUSES.UNDER_INSPECTION && (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                )}
-                {status === REPAIR_STATUSES.INSPECTION_COMPLETED && (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                )}
-                {status === REPAIR_STATUSES.REPAIR_ONGOING && (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                )}
-                {status === REPAIR_STATUSES.READY_FOR_PICKUP && (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
-              </div>
-            </div>
-          </div>
+           <div 
+             key={status}
+             onClick={() => setSelectedStatus(selectedStatus === status ? 'all' : status)}
+             className={`p-4 rounded-xl border cursor-pointer transition-all ${
+               selectedStatus === status 
+                 ? 'bg-blue-50 border-blue-200 shadow-sm ring-1 ring-blue-200' 
+                 : 'bg-white border-gray-100 hover:border-blue-200 hover:shadow-sm'
+             }`}
+           >
+             <div className="flex justify-between items-start mb-2">
+               <div className={`p-1.5 rounded-lg ${
+                 status === REPAIR_STATUSES.READY_FOR_PICKUP ? 'bg-green-100 text-green-600' :
+                 status === REPAIR_STATUSES.REPAIR_ONGOING ? 'bg-orange-100 text-orange-600' :
+                 'bg-gray-100 text-gray-600'
+               }`}>
+                  {status === REPAIR_STATUSES.REPAIR_ONGOING ? (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  ) : status === REPAIR_STATUSES.READY_FOR_PICKUP ? (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                  )}
+               </div>
+               <span className="text-2xl font-bold text-gray-900">{statusCounts[status] || 0}</span>
+             </div>
+             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide truncate">{label}</p>
+           </div>
         ))}
       </div>
 
-      {/* Search Bar */}
-      <div className="bg-primary-white rounded-lg border border-black-10 p-4 sm:p-6">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
-            <input
-              type="text"
-              placeholder="Search by customer name, car make/model, or license plate..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-3 border border-black-25 rounded-lg focus:ring-2 focus:ring-primary-red focus:border-primary-red"
-            />
+      {/* Main Content Area */}
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+        
+        {/* Toolbar */}
+        <div className="p-5 border-b border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-bold text-gray-900">
+              {selectedStatus === 'all' ? 'All Vehicles' : STATUS_LABELS[selectedStatus]}
+            </h3>
+            <span className="px-2.5 py-0.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-full border border-gray-200">
+              {filteredOrders.length}
+            </span>
           </div>
-          <button 
-            onClick={() => setSearchTerm('')}
-            className="px-4 py-3 border border-black-20 rounded-lg hover:bg-black-5"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
 
-      {/* Car Status List */}
-      <div className="bg-primary-white rounded-lg border border-black-10 overflow-hidden">
-        <div className="p-4 sm:p-6 border-b border-black-10">
-          <h3 className="text-lg font-semibold text-primary-black">
-            {selectedStatus === 'all' 
-              ? `All Cars (${filteredOrders.length})`
-              : `${STATUS_LABELS[selectedStatus]} (${filteredOrders.length})`
-            }
-          </h3>
-          <p className="text-black-75 text-sm">Real-time updates from workshop system</p>
+          <div className="w-full md:w-auto flex gap-3">
+             <div className="relative flex-1 md:w-72">
+               <input
+                 type="text"
+                 placeholder="Search vehicle, plate or customer..."
+                 value={searchTerm}
+                 onChange={(e) => setSearchTerm(e.target.value)}
+                 className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all"
+               />
+               <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+               </svg>
+             </div>
+          </div>
         </div>
 
-        {filteredOrders.length === 0 ? (
-          <div className="p-8 text-center">
-            <p className="text-black-50">
-              {searchTerm 
-                ? 'No cars found matching your search.'
-                : selectedStatus === 'all'
-                  ? 'No repair orders found.'
-                  : `No cars with status: ${STATUS_LABELS[selectedStatus]}`
-              }
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-black-10">
-            {filteredOrders.map((order) => (
-              <div key={order.id} className="p-4 sm:p-6 hover:bg-black-5">
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                  {/* Customer and Car Info */}
-                  <div className="flex-1">
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-3">
-                      <div>
-                        <h4 className="text-lg font-semibold text-primary-black">
-                          {order.customerName || 'Unknown Customer'}
-                        </h4>
-                        <p className="text-black-75">
-                          {order.vehicleInfo?.make} {order.vehicleInfo?.model} {order.vehicleInfo?.year}
-                        </p>
-                        <p className="text-sm text-black-50">
-                          License Plate: {order.vehicleInfo?.licensePlate || 'N/A'}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Issue Description */}
-                    {order.issueDescription && (
-                      <div className="mb-3">
-                        <p className="text-sm text-black-75">
-                          <span className="font-medium">Issue:</span> {order.issueDescription}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Dates */}
-                    <div className="flex flex-col sm:flex-row gap-4 text-sm text-black-50">
-                      <p>Created: {formatDate(order.dateCreated)}</p>
-                      <p>Last Updated: {formatDate(order.lastUpdated)}</p>
-                    </div>
-                  </div>
-
-                  {/* Status and Progress */}
-                  <div className="lg:w-64">
-                    <div className="text-center">
-                      <span className={`inline-flex px-3 py-2 text-sm font-semibold rounded-full ${STATUS_COLORS[order.repairStatus]}`}>
-                        {STATUS_LABELS[order.repairStatus] || 'Unknown Status'}
-                      </span>
-                      
-                      {/* Progress Bar */}
-                      <div className="mt-3">
-                        <div className="w-full bg-black-10 rounded-full h-2">
+        {/* Table View */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-semibold border-b border-gray-100">
+              <tr>
+                <th className="px-6 py-4">Vehicle Details</th>
+                <th className="px-6 py-4">Customer</th>
+                <th className="px-6 py-4 w-1/4">Status & Progress</th>
+                <th className="px-6 py-4">Last Update</th>
+                <th className="px-6 py-4 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredOrders.length > 0 ? (
+                filteredOrders.map((order) => (
+                  <tr key={order.id} className="hover:bg-gray-50/80 transition-colors group">
+                    <td className="px-6 py-4">
+                       <div className="flex items-center gap-3">
+                         <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400">
+                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                            </svg>
+                         </div>
+                         <div>
+                           <p className="font-bold text-gray-900">{order.vehicleInfo?.make} {order.vehicleInfo?.model}</p>
+                           <p className="text-xs font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded inline-block mt-0.5">
+                             {order.vehicleInfo?.licensePlate || 'NO PLATE'}
+                           </p>
+                         </div>
+                       </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="font-medium text-gray-900">{order.customerName}</p>
+                      <p className="text-xs text-gray-500">Owner</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col gap-2">
+                        <span className={`self-start px-2.5 py-1 text-xs font-bold rounded-lg border ${getStatusBadgeColor(order.repairStatus)}`}>
+                          {STATUS_LABELS[order.repairStatus] || 'Unknown'}
+                        </span>
+                        <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
                           <div 
-                            className="bg-primary-red h-2 rounded-full transition-all duration-300"
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              order.repairStatus === REPAIR_STATUSES.READY_FOR_PICKUP ? 'bg-green-500' : 'bg-blue-500'
+                            }`}
                             style={{ width: `${getStatusProgress(order.repairStatus)}%` }}
-                          ></div>
+                          />
                         </div>
-                        <p className="text-xs text-black-50 mt-1">
-                          {Math.round(getStatusProgress(order.repairStatus))}% Complete
-                        </p>
                       </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      {formatDate(order.lastUpdated)}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button className="text-gray-400 hover:text-blue-600 transition-colors">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="5" className="px-6 py-12 text-center text-gray-500">
+                    <div className="flex flex-col items-center justify-center">
+                       <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-3">
+                          <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                          </svg>
+                       </div>
+                       <p className="font-medium">No vehicles found</p>
+                       <p className="text-sm mt-1">Try adjusting your search or filter</p>
                     </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
+
     </div>
   )
 }

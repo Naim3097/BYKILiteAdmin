@@ -6,16 +6,17 @@ import { db } from '../firebaseConfig'
 import PDFGenerator from '../utils/PDFGenerator'
 
 function QuotationCreation({ setActiveSection }) {
-  console.log('🔍 QuotationCreation component mounting...')
+  console.log(' QuotationCreation component mounting...')
   
-  const [viewMode, setViewMode] = useState('list') // 'list' or 'create'
+  const [viewMode, setViewMode] = useState('list') // 'list' or 'form'
+  const [isEditing, setIsEditing] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [showCustomerModal, setShowCustomerModal] = useState(false)
   const [customerSearchTerm, setCustomerSearchTerm] = useState('')
   const [showViewQuotationModal, setShowViewQuotationModal] = useState(false)
   const [selectedQuotationForView, setSelectedQuotationForView] = useState(null)
-  const [showEditQuotationModal, setShowEditQuotationModal] = useState(false)
-  const [selectedQuotationForEdit, setSelectedQuotationForEdit] = useState(null)
   
   // Quotation form states
   const [manualParts, setManualParts] = useState([])
@@ -34,10 +35,6 @@ function QuotationCreation({ setActiveSection }) {
   const [isSaving, setIsSaving] = useState(false)
 
   const { customers = [] } = useCustomer() || {}
-
-  console.log('📊 Context data loaded:', { 
-    customersCount: customers?.length
-  })
 
   // Load quotation history
   useEffect(() => {
@@ -60,7 +57,6 @@ function QuotationCreation({ setActiveSection }) {
         })
         setQuotationHistory(quotations)
         setIsLoadingQuotations(false)
-        console.log('✅ Loaded quotations:', quotations.length)
       })
       
       return () => unsubscribe()
@@ -81,6 +77,22 @@ function QuotationCreation({ setActiveSection }) {
     if (!date) return 'N/A'
     return new Date(date).toLocaleDateString()
   }
+
+  // --- Calculations for Stats Cards ---
+  const getStats = () => {
+    const totalQuotes = quotationHistory.length
+    const pendingQuotes = quotationHistory.filter(q => q.status === 'pending')
+    const acceptedQuotes = quotationHistory.filter(q => q.status === 'accepted')
+    const pendingValue = pendingQuotes.reduce((sum, q) => sum + (q.total || 0), 0)
+    
+    return {
+      total: totalQuotes,
+      pendingCount: pendingQuotes.length,
+      acceptedCount: acceptedQuotes.length,
+      pendingValue: pendingValue
+    }
+  }
+  const stats = getStats()
 
   // Manual parts functions
   const addManualPart = () => {
@@ -138,7 +150,45 @@ function QuotationCreation({ setActiveSection }) {
     return { partsTotal, laborTotal, subtotal, discountAmount, total }
   }
 
-  const handleCreateQuotation = async () => {
+  const handleCreateButtonClick = () => {
+    resetForm()
+    setIsEditing(false)
+    setEditingId(null)
+    setViewMode('form')
+  }
+
+  const handleEditButtonClick = (quotation) => {
+    // Populate form with quotation data
+    setEditingId(quotation.id)
+    setIsEditing(true)
+    
+    // Set Customer (Construct a minimal object since we have ID/Name)
+    setSelectedCustomer({
+      id: quotation.customerId,
+      name: quotation.customerName,
+      email: quotation.customerEmail,
+      phone: quotation.customerPhone
+    })
+    
+    setManualParts(quotation.partsOrdered || [])
+    setLaborCharges(quotation.laborCharges || [])
+    setWorkDescription(quotation.workDescription || '')
+    setVehicleInfo(quotation.vehicleInfo || { make: '', model: '', year: '', plate: '' })
+    setDiscount(quotation.discount || 0)
+    setNotes(quotation.notes || '')
+    setTerms(quotation.terms || 'Quote valid for 30 days. Prices subject to change.')
+    
+    // Calculate validity days
+    const today = new Date()
+    const validUntil = quotation.validUntil?.toDate ? quotation.validUntil.toDate() : new Date(quotation.validUntil)
+    const diffTime = validUntil - today
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    setValidityDays(diffDays > 0 ? diffDays : 30)
+    
+    setViewMode('form')
+  }
+
+  const handleSaveQuotation = async () => {
     if (!selectedCustomer) {
       alert('Please select a customer')
       return
@@ -178,63 +228,27 @@ function QuotationCreation({ setActiveSection }) {
         total: totals.total,
         
         validUntil: validUntilDate,
-        status: 'pending',
-        dateCreated: new Date()
+        dateCreated: isEditing ? undefined : new Date(), // Don't update creation date on edit
+        status: isEditing ? undefined : 'pending' // Preserve status on edit or set pending on create
       }
       
-      await createQuotation(quotationData)
+      // Remove undefined values
+      Object.keys(quotationData).forEach(key => quotationData[key] === undefined && delete quotationData[key])
+
+      if (isEditing && editingId) {
+        await updateQuotation(editingId, quotationData)
+        alert('Quotation updated successfully!')
+      } else {
+        await createQuotation(quotationData)
+        alert('Quotation created successfully!')
+      }
       
-      alert('Quotation created successfully!')
       resetForm()
       setViewMode('list')
       
     } catch (error) {
-      console.error('Error creating quotation:', error)
-      alert('Error creating quotation: ' + error.message)
-    }
-    
-    setIsSaving(false)
-  }
-
-  const handleUpdateQuotation = async () => {
-    if (!selectedQuotationForEdit) return
-    
-    setIsSaving(true)
-    
-    try {
-      const totals = calculateTotals()
-      const validUntilDate = new Date()
-      validUntilDate.setDate(validUntilDate.getDate() + validityDays)
-      
-      const quotationData = {
-        partsOrdered: manualParts.filter(p => p.partName),
-        laborCharges: laborCharges.filter(l => l.description),
-        
-        workDescription,
-        vehicleInfo,
-        notes,
-        terms,
-        
-        partsTotal: totals.partsTotal,
-        laborTotal: totals.laborTotal,
-        subtotal: totals.subtotal,
-        discount,
-        discountAmount: totals.discountAmount,
-        total: totals.total,
-        
-        validUntil: validUntilDate
-      }
-      
-      await updateQuotation(selectedQuotationForEdit.id, quotationData)
-      
-      alert('Quotation updated successfully!')
-      setShowEditQuotationModal(false)
-      setSelectedQuotationForEdit(null)
-      resetForm()
-      
-    } catch (error) {
-      console.error('Error updating quotation:', error)
-      alert('Error updating quotation: ' + error.message)
+      console.error('Error saving quotation:', error)
+      alert('Error saving quotation: ' + error.message)
     }
     
     setIsSaving(false)
@@ -250,33 +264,13 @@ function QuotationCreation({ setActiveSection }) {
     setDiscount(0)
     setNotes('')
     setTerms('Quote valid for 30 days. Prices subject to change.')
+    setIsEditing(false)
+    setEditingId(null)
   }
 
   const openViewModal = (quotation) => {
     setSelectedQuotationForView(quotation)
     setShowViewQuotationModal(true)
-  }
-
-  const openEditModal = (quotation) => {
-    setSelectedQuotationForEdit(quotation)
-    
-    // Populate form with quotation data
-    setManualParts(quotation.partsOrdered || [])
-    setLaborCharges(quotation.laborCharges || [])
-    setWorkDescription(quotation.workDescription || '')
-    setVehicleInfo(quotation.vehicleInfo || { make: '', model: '', year: '', plate: '' })
-    setDiscount(quotation.discount || 0)
-    setNotes(quotation.notes || '')
-    setTerms(quotation.terms || 'Quote valid for 30 days. Prices subject to change.')
-    
-    // Calculate validity days
-    const today = new Date()
-    const validUntil = quotation.validUntil?.toDate ? quotation.validUntil.toDate() : new Date(quotation.validUntil)
-    const diffTime = validUntil - today
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-    setValidityDays(diffDays > 0 ? diffDays : 30)
-    
-    setShowEditQuotationModal(true)
   }
 
   const selectCustomer = (customer) => {
@@ -355,943 +349,596 @@ function QuotationCreation({ setActiveSection }) {
 
   const totals = calculateTotals()
 
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'accepted': return 'bg-green-50 text-green-700 border-green-200';
+      case 'rejected': return 'bg-red-50 text-red-700 border-red-200';
+      case 'expired': return 'bg-gray-100 text-gray-700 border-gray-200';
+      case 'pending': return 'bg-yellow-50 text-yellow-700 border-yellow-200';
+      default: return 'bg-gray-100 text-gray-600 border-gray-200';
+    }
+  }
+
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {/* Header with View Toggle */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <h2 className="text-2xl font-bold">
-            {viewMode === 'create' ? 'Create Customer Quotation' : 'Quotation Management'}
-          </h2>
-          <div className="flex rounded-lg border border-black-10 overflow-hidden">
-            <button
-              onClick={() => setViewMode('create')}
-              className={`px-4 py-2 text-sm font-medium ${
-                viewMode === 'create'
-                  ? 'bg-primary-red text-white'
-                  : 'bg-white text-primary-black hover:bg-black-5'
-              }`}
-            >
-              Create New
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-4 py-2 text-sm font-medium ${
-                viewMode === 'list'
-                  ? 'bg-primary-red text-white'
-                  : 'bg-white text-primary-black hover:bg-black-5'
-              }`}
-            >
-              View History ({quotationHistory.length})
-            </button>
-          </div>
-        </div>
-        <button
-          onClick={() => setActiveSection('customers')}
-          className="px-4 py-2 text-black-75 hover:text-primary-black"
-        >
-          Back to Customers
-        </button>
-      </div>
-
-      {/* Quotation History View */}
+    <div className="space-y-6">
+      
+      {/* Stats Cards Row */}
       {viewMode === 'list' && (
-        <div className="space-y-6">
-          {/* Search and Filters */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
-                <input
-                  type="text"
-                  placeholder="Search quotations by customer, number, or description..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-4 py-3 border border-black-25 rounded-lg focus:ring-2 focus:ring-primary-red focus:border-primary-red"
-                />
-              </div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-3 border border-black-25 rounded-lg focus:ring-2 focus:ring-primary-red focus:border-primary-red"
-              >
-                <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="accepted">Accepted</option>
-                <option value="rejected">Rejected</option>
-                <option value="expired">Expired</option>
-              </select>
-            </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+           {/* Total Card */}
+           <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+             <div className="flex justify-between items-start">
+               <div>
+                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Quotes</p>
+                 <h3 className="text-2xl font-bold text-gray-900 mt-1">{stats.total}</h3>
+               </div>
+               <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+               </div>
+             </div>
+           </div>
+
+           {/* Pending Value Card */}
+           <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+             <div className="flex justify-between items-start">
+               <div>
+                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Pending Value</p>
+                 <h3 className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(stats.pendingValue)}</h3>
+               </div>
+               <div className="p-2 bg-yellow-50 rounded-lg text-yellow-600">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                   </svg>
+               </div>
+             </div>
+             <p className="text-xs text-gray-500 mt-2">{stats.pendingCount} quotations pending</p>
+           </div>
+
+           {/* Accepted Card */}
+           <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+             <div className="flex justify-between items-start">
+               <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Accepted</p>
+                  <h3 className="text-2xl font-bold text-gray-900 mt-1">{stats.acceptedCount}</h3>
+               </div>
+               <div className="p-2 bg-green-50 rounded-lg text-green-600">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+               </div>
+             </div>
+           </div>
+
+           {/* Action Card */}
+           <div 
+             onClick={handleCreateButtonClick}
+             className="bg-blue-600 p-5 rounded-xl border border-blue-600 shadow-sm cursor-pointer hover:bg-blue-700 transition-colors flex flex-col justify-center items-center text-white"
+           >
+             <div className="p-3 bg-white/20 rounded-full mb-2">
+               <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+               </svg>
+             </div>
+             <h3 className="font-bold">Create New Quote</h3>
+           </div>
+        </div>
+      )}
+
+      {/* List View */}
+      {viewMode === 'list' && (
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+          
+          {/* Toolbar */}
+          <div className="p-5 border-b border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
+             <h3 className="text-lg font-bold text-gray-900">Recent Quotations</h3>
+             
+             <div className="flex items-center gap-2 w-full md:w-auto">
+               <div className="relative flex-1 md:w-64">
+                 <input
+                   type="text"
+                   placeholder="Search quotations..."
+                   value={searchQuery}
+                   onChange={(e) => setSearchQuery(e.target.value)}
+                   className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all"
+                 />
+                 <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                 </svg>
+               </div>
+               
+               <select
+                 value={statusFilter}
+                 onChange={(e) => setStatusFilter(e.target.value)}
+                 className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:bg-white focus:border-blue-400"
+               >
+                 <option value="all">All Status</option>
+                 <option value="pending">Pending</option>
+                 <option value="accepted">Accepted</option>
+                 <option value="rejected">Rejected</option>
+               </select>
+             </div>
           </div>
 
-          {/* Quotation List */}
-          <div className="bg-primary-white rounded-lg border border-black-10 overflow-hidden">
-            <div className="p-4 sm:p-6 border-b border-black-10">
-              <h3 className="text-lg font-semibold text-primary-black">Quotation History</h3>
-              <p className="text-black-75 text-sm">Manage and download existing quotations</p>
-            </div>
-
-            {isLoadingQuotations ? (
-              <div className="p-8 text-center">
-                <p className="text-black-50">Loading quotations...</p>
-              </div>
-            ) : getFilteredQuotations().length === 0 ? (
-              <div className="p-8 text-center">
-                <p className="text-black-50">
-                  {searchQuery ? 'No quotations match your search.' : 'No quotations found.'}
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-black-5">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Quotation</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Customer</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Amount</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Valid Until</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-black-50 uppercase">Actions</th>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-semibold border-b border-gray-100">
+                <tr>
+                  <th className="px-6 py-4">Ref #</th>
+                  <th className="px-6 py-4">Customer</th>
+                  <th className="px-6 py-4">Amount</th>
+                  <th className="px-6 py-4">Date</th>
+                  <th className="px-6 py-4">Status</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {getFilteredQuotations().length > 0 ? (
+                  getFilteredQuotations().map((quote) => (
+                    <tr key={quote.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <span className="font-mono font-medium text-gray-900">{quote.quotationNumber}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                           <span className="font-medium text-gray-900">{quote.customerName}</span>
+                           <span className="text-xs text-gray-500">{quote.vehicleInfo?.make} {quote.vehicleInfo?.model}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-gray-900 font-bold">
+                        {formatCurrency(quote.total)}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {formatDate(quote.dateCreated)}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2.5 py-1 text-xs font-semibold rounded-lg border ${getStatusColor(quote.status)}`}>
+                          {quote.status?.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                           <button 
+                             onClick={() => openViewModal(quote)}
+                             className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                             title="View Details"
+                           >
+                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                             </svg>
+                           </button>
+                           <button 
+                             onClick={() => handleEditButtonClick(quote)}
+                             className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded transition-colors"
+                             title="Edit"
+                           >
+                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                             </svg>
+                           </button>
+                           <button 
+                             onClick={() => downloadPDF(quote)}
+                             className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                             title="Download PDF"
+                           >
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                           </button>
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-black-10">
-                    {getFilteredQuotations().map((quotation) => (
-                      <tr key={quotation.id} className="hover:bg-black-5">
-                        <td className="px-4 py-4 text-sm">
-                          <div className="font-medium text-primary-black">{quotation.quotationNumber}</div>
-                          <div className="text-black-50">{formatDate(quotation.dateCreated)}</div>
-                        </td>
-                        <td className="px-4 py-4 text-sm">
-                          <div className="text-primary-black">{quotation.customerName}</div>
-                          <div className="text-black-50">{quotation.customerPhone}</div>
-                        </td>
-                        <td className="px-4 py-4 text-sm font-medium text-primary-black">
-                          {formatCurrency(quotation.total)}
-                        </td>
-                        <td className="px-4 py-4 text-sm text-primary-black">
-                          {formatDate(quotation.validUntil)}
-                        </td>
-                        <td className="px-4 py-4 text-sm">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                            quotation.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                            quotation.status === 'accepted' ? 'bg-green-100 text-green-800' :
-                            quotation.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {quotation.status?.charAt(0).toUpperCase() + quotation.status?.slice(1)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-sm">
-                          <div className="flex items-center space-x-2">
-                            <button
-                              onClick={() => openViewModal(quotation)}
-                              className="text-blue-600 hover:text-blue-800 font-medium"
-                            >
-                              View
-                            </button>
-                            <span className="text-black-25">|</span>
-                            <button
-                              onClick={() => openEditModal(quotation)}
-                              className="text-orange-600 hover:text-orange-800 font-medium"
-                            >
-                              Edit
-                            </button>
-                            <span className="text-black-25">|</span>
-                            <button
-                              onClick={() => downloadPDF(quotation)}
-                              className="text-primary-red hover:text-red-dark font-medium"
-                            >
-                              Download
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
+                      <p className="font-medium">No quotations found</p>
+                      <p className="text-sm mt-1">Create a new quotation to get started</p>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {/* Create Quotation View */}
-      {viewMode === 'create' && (
-        <div className="space-y-6">
-          {/* Customer Selection */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Customer Information</h3>
-            
-            {selectedCustomer ? (
-              <div className="bg-black-5 p-4 rounded-lg border border-black-10">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="font-semibold text-lg">{selectedCustomer.name}</h4>
-                    <p className="text-black-75">{selectedCustomer.email}</p>
-                    <p className="text-black-75">{selectedCustomer.phone}</p>
-                  </div>
-                  <button
-                    onClick={() => setSelectedCustomer(null)}
-                    className="px-4 py-2 text-primary-red hover:text-red-dark"
-                  >
-                    Change Customer
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowCustomerModal(true)}
-                className="w-full px-4 py-3 border-2 border-dashed border-black-25 rounded-lg text-black-75 hover:border-primary-red hover:text-primary-red"
+      {/* Create/Edit Quotation Form View */}
+      {viewMode === 'form' && (
+        <div className="max-w-5xl mx-auto space-y-6">
+           <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-gray-900">{isEditing ? 'Edit Quotation' : 'New Quotation'}</h2>
+              <button 
+                onClick={() => setViewMode('list')}
+                className="text-gray-500 hover:text-gray-700 font-medium text-sm flex items-center gap-1"
               >
-                + Select Customer
+                 Back to List
               </button>
-            )}
-          </div>
+           </div>
 
-          {selectedCustomer && (
-            <>
-              {/* Vehicle Information */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Vehicle Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <input
-                    type="text"
-                    placeholder="Make (e.g., Toyota)"
-                    value={vehicleInfo.make}
-                    onChange={(e) => setVehicleInfo({...vehicleInfo, make: e.target.value})}
-                    className="px-4 py-2 border rounded-lg"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Model (e.g., Camry)"
-                    value={vehicleInfo.model}
-                    onChange={(e) => setVehicleInfo({...vehicleInfo, model: e.target.value})}
-                    className="px-4 py-2 border rounded-lg"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Year (e.g., 2020)"
-                    value={vehicleInfo.year}
-                    onChange={(e) => setVehicleInfo({...vehicleInfo, year: e.target.value})}
-                    className="px-4 py-2 border rounded-lg"
-                  />
-                  <input
-                    type="text"
-                    placeholder="License Plate"
-                    value={vehicleInfo.plate}
-                    onChange={(e) => setVehicleInfo({...vehicleInfo, plate: e.target.value})}
-                    className="px-4 py-2 border rounded-lg"
-                  />
-                </div>
-              </div>
+           {/* 1. Customer Selection Card */}
+           <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+             <div className="flex justify-between items-start mb-4">
+                <h3 className="text-lg font-bold text-gray-900">1. Customer Details</h3>
+                {selectedCustomer && (
+                  <button onClick={() => setSelectedCustomer(null)} className="text-sm text-blue-600 hover:underline">Change</button>
+                )}
+             </div>
+             
+             {selectedCustomer ? (
+               <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex gap-4 items-center">
+                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+                     <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                     </svg>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-gray-900">{selectedCustomer.name}</h4>
+                    <p className="text-sm text-gray-600">{selectedCustomer.phone}  {selectedCustomer.email}</p>
+                  </div>
+               </div>
+             ) : (
+               <button 
+                 onClick={() => setShowCustomerModal(true)}
+                 className="w-full py-8 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex flex-col items-center justify-center gap-2"
+               >
+                 <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                 </svg>
+                 <span className="font-medium">Select a Customer to Begin</span>
+               </button>
+             )}
+           </div>
 
-              {/* Work Description */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Work Details</h3>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Work Description</label>
-                  <textarea
-                    value={workDescription}
-                    onChange={(e) => setWorkDescription(e.target.value)}
-                    placeholder="Describe the work to be performed..."
-                    className="w-full px-4 py-2 border rounded-lg h-24"
-                  />
-                </div>
-              </div>
+           {selectedCustomer && (
+             <>
+               {/* 2. Vehicle Information */}
+               <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                 <h3 className="text-lg font-bold text-gray-900 mb-4">2. Vehicle Information</h3>
+                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Make</label>
+                      <input 
+                        type="text" 
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+                        placeholder="e.g. Toyota"
+                        value={vehicleInfo.make}
+                        onChange={(e) => setVehicleInfo({...vehicleInfo, make: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Model</label>
+                      <input 
+                        type="text" 
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+                        placeholder="e.g. Vios"
+                        value={vehicleInfo.model}
+                        onChange={(e) => setVehicleInfo({...vehicleInfo, model: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Year</label>
+                      <input 
+                        type="text" 
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+                        placeholder="e.g. 2021"
+                        value={vehicleInfo.year}
+                        onChange={(e) => setVehicleInfo({...vehicleInfo, year: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">License Plate</label>
+                      <input 
+                        type="text" 
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+                        placeholder="e.g. ABC 1234"
+                        value={vehicleInfo.plate}
+                        onChange={(e) => setVehicleInfo({...vehicleInfo, plate: e.target.value})}
+                      />
+                    </div>
+                 </div>
+                 
+                 <div className="mt-4">
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Work Description / Issues</label>
+                    <textarea 
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400 h-20"
+                      placeholder="Describe the requested work or reported issues..."
+                      value={workDescription}
+                      onChange={(e) => setWorkDescription(e.target.value)}
+                    ></textarea>
+                 </div>
+               </div>
 
-              {/* Parts Section */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold">Parts</h3>
-                  <button
-                    onClick={addManualPart}
-                    className="px-4 py-2 bg-primary-red text-white rounded-lg hover:bg-red-dark"
-                  >
-                    + Add Part
-                  </button>
-                </div>
+               {/* 3. Items & Charges */}
+               <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                 <div className="flex justify-between items-center mb-4">
+                   <h3 className="text-lg font-bold text-gray-900">3. Parts & Labor</h3>
+                   <div className="flex gap-2">
+                      <button onClick={addManualPart} className="px-3 py-1.5 bg-blue-50 text-blue-600 text-sm font-medium rounded-lg hover:bg-blue-100 transition-colors">
+                        + Add Part
+                      </button>
+                      <button onClick={addLaborCharge} className="px-3 py-1.5 bg-green-50 text-green-600 text-sm font-medium rounded-lg hover:bg-green-100 transition-colors">
+                        + Add Labor
+                      </button>
+                   </div>
+                 </div>
 
-                {manualParts.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">SKU</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Part Name</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Quantity</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Price per Unit</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Total</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
+                 {/* Parts List */}
+                 <div className="mb-6">
+                    <h4 className="text-sm font-bold text-gray-700 mb-2">Parts</h4>
+                    {manualParts.length > 0 ? (
+                      <div className="space-y-2">
                         {manualParts.map((part, index) => (
-                          <tr key={index}>
-                            <td className="px-4 py-3">
-                              <input
-                                type="text"
-                                value={part.sku}
-                                onChange={(e) => updateManualPart(index, 'sku', e.target.value)}
-                                placeholder="SKU"
-                                className="w-24 px-2 py-1 border rounded text-xs"
-                              />
-                            </td>
-                            <td className="px-4 py-3">
-                              <input
-                                type="text"
-                                value={part.partName}
-                                onChange={(e) => updateManualPart(index, 'partName', e.target.value)}
-                                placeholder="Part Name"
-                                className="w-full px-2 py-1 border rounded text-xs"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                value={part.quantity}
-                                onChange={(e) => updateManualPart(index, 'quantity', parseInt(e.target.value) || 0)}
-                                className="w-16 px-2 py-1 border rounded"
-                                min="1"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                value={part.pricePerUnit}
-                                onChange={(e) => updateManualPart(index, 'pricePerUnit', parseFloat(e.target.value) || 0)}
-                                className="w-20 px-2 py-1 border rounded"
-                                step="0.01"
-                              />
-                            </td>
-                            <td className="px-3 py-2">{formatCurrency(part.total)}</td>
-                            <td className="px-3 py-2">
-                              <button
-                                onClick={() => removeManualPart(index)}
-                                className="text-red-600 hover:text-red-800 text-xs"
-                              >
-                                Remove
-                              </button>
-                            </td>
-                          </tr>
+                           <div key={index} className="grid grid-cols-12 gap-2 p-3 bg-gray-50 rounded-lg border border-gray-100 items-start">
+                             <div className="col-span-2">
+                               <input type="text" placeholder="SKU" className="w-full p-1.5 text-sm border rounded" value={part.sku} onChange={(e) => updateManualPart(index, 'sku', e.target.value)} />
+                             </div>
+                             <div className="col-span-5">
+                               <input type="text" placeholder="Item Name" className="w-full p-1.5 text-sm border rounded" value={part.partName} onChange={(e) => updateManualPart(index, 'partName', e.target.value)} />
+                             </div>
+                             <div className="col-span-1">
+                               <input type="number" placeholder="Qty" className="w-full p-1.5 text-sm border rounded" value={part.quantity} onChange={(e) => updateManualPart(index, 'quantity', parseFloat(e.target.value) || 0)} />
+                             </div>
+                             <div className="col-span-2">
+                               <input type="number" placeholder="Price" className="w-full p-1.5 text-sm border rounded" value={part.pricePerUnit} onChange={(e) => updateManualPart(index, 'pricePerUnit', parseFloat(e.target.value) || 0)} />
+                             </div>
+                             <div className="col-span-1 text-right font-medium text-sm pt-2">
+                               {formatCurrency(part.total)}
+                             </div>
+                             <div className="col-span-1 flex justify-end">
+                               <button onClick={() => removeManualPart(index)} className="text-gray-400 hover:text-red-500">
+                                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                               </button>
+                             </div>
+                           </div>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-center py-4">No parts added yet. Click "Add Part" to begin.</p>
-                )}
-              </div>
-
-              {/* Labor Charges */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold">Labor Charges</h3>
-                  <button
-                    onClick={addLaborCharge}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                  >
-                    + Add Labor
-                  </button>
-                </div>
-                {laborCharges.length > 0 ? (
-                  <div className="space-y-3">
-                    {laborCharges.map((labor, index) => (
-                      <div key={index} className="flex gap-3 items-end">
-                        <div className="w-32">
-                          <label className="block text-xs text-gray-600 mb-1">SKU</label>
-                          <input
-                            type="text"
-                            value={labor.sku}
-                            onChange={(e) => updateLaborCharge(index, 'sku', e.target.value)}
-                            placeholder="e.g., SVC-001"
-                            className="w-full px-3 py-2 border rounded"
-                          />
-                        </div>
-                        <div className="flex-1">
-                          <label className="block text-xs text-gray-600 mb-1">Description</label>
-                          <input
-                            type="text"
-                            value={labor.description}
-                            onChange={(e) => updateLaborCharge(index, 'description', e.target.value)}
-                            placeholder="e.g., Engine repair, Oil change"
-                            className="w-full px-3 py-2 border rounded"
-                          />
-                        </div>
-                        <div className="w-40">
-                          <label className="block text-xs text-gray-600 mb-1">Amount (RM)</label>
-                          <input
-                            type="number"
-                            value={labor.amount}
-                            onChange={(e) => updateLaborCharge(index, 'amount', parseFloat(e.target.value) || 0)}
-                            className="w-full px-3 py-2 border rounded"
-                            step="0.01"
-                            min="0"
-                            placeholder="0.00"
-                          />
-                        </div>
-                        <button
-                          onClick={() => removeLaborCharge(index)}
-                          className="px-3 py-2 text-red-600 hover:text-red-800"
-                        >
-                          Remove
-                        </button>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-center py-4">No labor charges added yet</p>
-                )}
-              </div>
+                    ) : (
+                      <div className="text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200 text-sm text-gray-400">
+                        No parts added
+                      </div>
+                    )}
+                 </div>
 
-              {/* Quotation Summary */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Quotation Summary</h3>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Validity (Days)</label>
-                      <input
-                        type="number"
-                        value={validityDays}
-                        onChange={(e) => setValidityDays(parseInt(e.target.value) || 30)}
-                        className="w-full px-4 py-2 border rounded-lg"
-                        min="1"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Discount (%)</label>
-                      <input
-                        type="number"
-                        value={discount}
-                        onChange={(e) => setDiscount(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
-                        className="w-full px-4 py-2 border rounded-lg"
-                        step="0.1"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      className="w-full px-4 py-2 border rounded-lg h-16"
-                      placeholder="Any additional notes..."
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Terms & Conditions</label>
-                    <textarea
-                      value={terms}
-                      onChange={(e) => setTerms(e.target.value)}
-                      className="w-full px-4 py-2 border rounded-lg h-20"
-                    />
-                  </div>
-                </div>
-              </div>
+                 {/* Labor List */}
+                 <div>
+                    <h4 className="text-sm font-bold text-gray-700 mb-2">Labor Charges</h4>
+                    {laborCharges.length > 0 ? (
+                      <div className="space-y-2">
+                        {laborCharges.map((labor, index) => (
+                           <div key={index} className="grid grid-cols-12 gap-2 p-3 bg-green-50 rounded-lg border border-green-100 items-start">
+                             <div className="col-span-2">
+                               <input type="text" placeholder="Code" className="w-full p-1.5 text-sm border rounded" value={labor.sku} onChange={(e) => updateLaborCharge(index, 'sku', e.target.value)} />
+                             </div>
+                             <div className="col-span-6">
+                               <input type="text" placeholder="Description" className="w-full p-1.5 text-sm border rounded" value={labor.description} onChange={(e) => updateLaborCharge(index, 'description', e.target.value)} />
+                             </div>
+                             <div className="col-span-2">
+                               <input type="number" placeholder="Cost" className="w-full p-1.5 text-sm border rounded" value={labor.amount} onChange={(e) => updateLaborCharge(index, 'amount', parseFloat(e.target.value) || 0)} />
+                             </div>
+                             <div className="col-span-1 text-right font-medium text-sm pt-2">
+                               {formatCurrency(labor.amount)}
+                             </div>
+                             <div className="col-span-1 flex justify-end">
+                               <button onClick={() => removeLaborCharge(index)} className="text-gray-400 hover:text-red-500">
+                                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                               </button>
+                             </div>
+                           </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200 text-sm text-gray-400">
+                        No labor charges added
+                      </div>
+                    )}
+                 </div>
+               </div>
 
-              {/* Totals Summary */}
-              <div className="bg-gray-50 rounded-lg p-6">
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Parts Total:</span>
-                    <span className="font-medium">{formatCurrency(totals.partsTotal)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Labor Total:</span>
-                    <span className="font-medium">{formatCurrency(totals.laborTotal)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Subtotal:</span>
-                    <span className="font-medium">{formatCurrency(totals.subtotal)}</span>
-                  </div>
-                  {discount > 0 && (
-                    <div className="flex justify-between text-sm text-green-600">
-                      <span>Discount ({discount}%):</span>
-                      <span>-{formatCurrency(totals.discountAmount)}</span>
+               {/* 4. Terms & Summary */}
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 {/* Left Column: Terms */}
+                 <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                    <h4 className="font-bold text-gray-900 mb-4">Terms & Notes</h4>
+                    <div className="space-y-4">
+                       <div>
+                         <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Validity Period (Days)</label>
+                         <input type="number" value={validityDays} onChange={(e) => setValidityDays(parseInt(e.target.value) || 30)} className="w-full p-2 border rounded-lg text-sm" />
+                       </div>
+                       <div>
+                         <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Customer Notes (Visible on PDF)</label>
+                         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-2 border rounded-lg text-sm h-16"></textarea>
+                       </div>
+                       <div>
+                         <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Terms & Conditions</label>
+                         <textarea value={terms} onChange={(e) => setTerms(e.target.value)} className="w-full p-2 border rounded-lg text-sm h-16"></textarea>
+                       </div>
                     </div>
-                  )}
-                  <div className="flex justify-between text-xl font-bold border-t-2 pt-2 mt-2">
-                    <span>Total:</span>
-                    <span className="text-blue-600">{formatCurrency(totals.total)}</span>
-                  </div>
-                </div>
-              </div>
+                 </div>
 
-              {/* Action Buttons */}
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => setViewMode('list')}
-                  className="px-6 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateQuotation}
-                  disabled={isSaving || !selectedCustomer || (manualParts.length === 0 && laborCharges.length === 0)}
-                  className="px-6 py-3 bg-primary-red text-white rounded-lg hover:bg-red-dark disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSaving ? 'Creating...' : 'Create Quotation'}
-                </button>
-              </div>
-            </>
-          )}
+                 {/* Right Column: Totals */}
+                 <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm flex flex-col justify-center">
+                    <div className="space-y-3">
+                       <div className="flex justify-between text-gray-600">
+                         <span>Parts Total</span>
+                         <span>{formatCurrency(totals.partsTotal)}</span>
+                       </div>
+                       <div className="flex justify-between text-gray-600">
+                         <span>Labor Total</span>
+                         <span>{formatCurrency(totals.laborTotal)}</span>
+                       </div>
+                       <div className="flex justify-between font-medium text-gray-900 pt-2 border-t border-dashed">
+                         <span>Subtotal</span>
+                         <span>{formatCurrency(totals.subtotal)}</span>
+                       </div>
+                       <div className="flex justify-between items-center text-green-600">
+                         <div className="flex items-center gap-2">
+                           <span>Discount</span>
+                           <input 
+                             type="number" 
+                             className="w-16 p-1 text-xs border border-green-200 rounded text-center bg-green-50"
+                             value={discount}
+                             onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
+                           />
+                           <span>%</span>
+                         </div>
+                         <span>- {formatCurrency(totals.discountAmount)}</span>
+                       </div>
+                       <div className="flex justify-between text-2xl font-bold text-blue-600 pt-4 border-t border-gray-100">
+                         <span>Grand Total</span>
+                         <span>{formatCurrency(totals.total)}</span>
+                       </div>
+                    </div>
+
+                    <div className="mt-8 flex gap-3">
+                      <button onClick={() => setViewMode('list')} className="flex-1 py-3 text-gray-600 font-medium hover:bg-gray-50 rounded-lg transition-colors border border-gray-200">
+                        Cancel
+                      </button>
+                      <button 
+                        onClick={handleSaveQuotation} 
+                        disabled={isSaving}
+                        className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all disabled:opacity-50"
+                      >
+                        {isSaving ? 'Saving...' : (isEditing ? 'Update Quotation' : 'Create Quotation')}
+                      </button>
+                    </div>
+                 </div>
+               </div>
+             </>
+           )}
         </div>
       )}
 
       {/* Customer Selection Modal */}
       {showCustomerModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Select Customer</h3>
-              <button
-                onClick={() => setShowCustomerModal(false)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            
-            <div className="mb-4">
-              <input
-                type="text"
-                placeholder="Search by name, phone, or email..."
-                value={customerSearchTerm}
-                onChange={(e) => setCustomerSearchTerm(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            
-            <div className="flex-1 overflow-y-auto space-y-2">
-              {filteredCustomers.length > 0 ? (
-                filteredCustomers.map((customer) => (
-                  <div
-                    key={customer.id}
-                    onClick={() => selectCustomer(customer)}
-                    className="p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
-                  >
-                    <div className="font-semibold">{customer.name}</div>
-                    <div className="text-sm text-gray-600">{customer.email}</div>
-                    <div className="text-sm text-gray-600">{customer.phone}</div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No customers found</p>
-                </div>
-              )}
-            </div>
-          </div>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden">
+             <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h3 className="font-bold text-gray-900">Select Customer</h3>
+                <button onClick={() => setShowCustomerModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+             </div>
+             <div className="p-4">
+               <input 
+                 type="text" 
+                 placeholder="Search customer name or phone..." 
+                 className="w-full px-4 py-2 border border-gray-200 rounded-lg mb-4 focus:ring-2 focus:ring-blue-100"
+                 value={customerSearchTerm}
+                 onChange={(e) => setCustomerSearchTerm(e.target.value)}
+               />
+               <div className="max-h-60 overflow-y-auto space-y-2">
+                 {filteredCustomers.map(cust => (
+                   <div 
+                     key={cust.id} 
+                     onClick={() => selectCustomer(cust)}
+                     className="p-3 border border-gray-100 rounded-lg hover:bg-blue-50 hover:border-blue-200 cursor-pointer transition-all"
+                   >
+                     <p className="font-bold text-gray-900">{cust.name}</p>
+                     <p className="text-sm text-gray-500">{cust.phone}</p>
+                   </div>
+                 ))}
+               </div>
+             </div>
+           </div>
         </div>
       )}
 
-      {/* View Quotation Modal */}
+      {/* View Modal (Digital Invoice Preview) */}
       {showViewQuotationModal && selectedQuotationForView && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-black-10">
-              <div className="flex justify-between items-center">
-                <h3 className="text-xl font-semibold text-primary-black">Quotation Details</h3>
-                <button
-                  onClick={() => setShowViewQuotationModal(false)}
-                  className="text-black-50 hover:text-black-75"
-                >
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center sticky top-0 bg-white z-10">
+               <div>
+                  <h3 className="text-xl font-bold text-gray-900">Quotation #{selectedQuotationForView.quotationNumber}</h3>
+                  <p className="text-sm text-gray-500">{formatDate(selectedQuotationForView.dateCreated)}</p>
+               </div>
+               <button onClick={() => setShowViewQuotationModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Close</button>
             </div>
-
-            <div className="p-6 space-y-6">
-              {/* Quotation Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h4 className="font-semibold text-primary-black mb-3">Quotation Information</h4>
-                  <div className="space-y-2 text-sm">
-                    <p><span className="font-medium">Quotation #:</span> {selectedQuotationForView.quotationNumber}</p>
-                    <p><span className="font-medium">Date:</span> {formatDate(selectedQuotationForView.dateCreated)}</p>
-                    <p><span className="font-medium">Valid Until:</span> {formatDate(selectedQuotationForView.validUntil)}</p>
-                    <p><span className="font-medium">Status:</span> 
-                      <span className={`ml-2 px-2 py-1 rounded text-xs ${
-                        selectedQuotationForView.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                        selectedQuotationForView.status === 'accepted' ? 'bg-green-100 text-green-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        {selectedQuotationForView.status?.charAt(0).toUpperCase() + selectedQuotationForView.status?.slice(1)}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="font-semibold text-primary-black mb-3">Customer Information</h4>
-                  <div className="space-y-2 text-sm">
-                    <p><span className="font-medium">Name:</span> {selectedQuotationForView.customerName}</p>
-                    <p><span className="font-medium">Email:</span> {selectedQuotationForView.customerEmail || 'N/A'}</p>
-                    <p><span className="font-medium">Phone:</span> {selectedQuotationForView.customerPhone}</p>
-                  </div>
-                </div>
+            
+            <div className="p-8">
+              {/* Recipient Info */}
+              <div className="flex justify-between mb-8">
+                 <div>
+                    <h4 className="text-xs font-bold text-gray-400 uppercase mb-2">Quoted For</h4>
+                    <p className="font-bold text-lg text-gray-900">{selectedQuotationForView.customerName}</p>
+                    <p className="text-gray-600">{selectedQuotationForView.customerEmail}</p>
+                    <p className="text-gray-600">{selectedQuotationForView.customerPhone}</p>
+                 </div>
+                 <div className="text-right">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase mb-2">Vehicle</h4>
+                    <p className="font-bold text-gray-900">{selectedQuotationForView.vehicleInfo?.make} {selectedQuotationForView.vehicleInfo?.model}</p>
+                    <p className="text-gray-600">{selectedQuotationForView.vehicleInfo?.plate}</p>
+                 </div>
               </div>
 
-              {/* Work Description */}
-              {selectedQuotationForView.workDescription && (
-                <div>
-                  <h4 className="font-semibold text-primary-black mb-3">Work Description</h4>
-                  <div className="bg-black-5 p-3 rounded-lg">
-                    <p className="text-sm text-black-75">{selectedQuotationForView.workDescription}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Parts */}
-              {selectedQuotationForView.partsOrdered?.length > 0 && (
-                <div>
-                  <h4 className="font-semibold text-primary-black mb-3">Parts</h4>
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <div className="space-y-2">
-                      {selectedQuotationForView.partsOrdered.map((part, index) => (
-                        <div key={index} className="flex justify-between text-sm">
-                          <span>{part.partName} ({part.sku}) x {part.quantity}</span>
-                          <span className="font-medium">{formatCurrency(part.total)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Labor Charges */}
-              {selectedQuotationForView.laborCharges?.length > 0 && (
-                <div>
-                  <h4 className="font-semibold text-primary-black mb-3">Labor Charges</h4>
-                  <div className="bg-green-50 rounded-lg p-4">
-                    <div className="space-y-2">
-                      {selectedQuotationForView.laborCharges.map((labor, index) => (
-                        <div key={index} className="flex justify-between text-sm">
-                          <span>{labor.description} {labor.sku && `(${labor.sku})`}</span>
-                          <span className="font-medium">{formatCurrency(labor.amount)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Items Table */}
+              <table className="w-full mb-8">
+                 <thead className="border-b-2 border-gray-100">
+                    <tr>
+                       <th className="text-left py-3 font-bold text-gray-600">Item Description</th>
+                       <th className="text-center py-3 font-bold text-gray-600">Qty</th>
+                       <th className="text-right py-3 font-bold text-gray-600">Amount</th>
+                    </tr>
+                 </thead>
+                 <tbody className="divide-y divide-gray-50">
+                    {/* Parts */}
+                    {selectedQuotationForView.partsOrdered?.map((part, i) => (
+                       <tr key={`p-${i}`}>
+                          <td className="py-3">
+                             <p className="font-medium text-gray-900">{part.partName}</p>
+                             <p className="text-xs text-gray-500">{part.sku}</p>
+                          </td>
+                          <td className="text-center py-3 text-gray-600">{part.quantity}</td>
+                          <td className="text-right py-3 text-gray-900 font-medium">{formatCurrency(part.total)}</td>
+                       </tr>
+                    ))}
+                    {/* Labor */}
+                    {selectedQuotationForView.laborCharges?.map((labor, i) => (
+                       <tr key={`l-${i}`}>
+                          <td className="py-3">
+                             <p className="font-medium text-gray-900">{labor.description}</p>
+                             <p className="text-xs text-green-600 font-medium">Labor Charge</p>
+                          </td>
+                          <td className="text-center py-3 text-gray-600">1</td>
+                          <td className="text-right py-3 text-gray-900 font-medium">{formatCurrency(labor.amount)}</td>
+                       </tr>
+                    ))}
+                 </tbody>
+              </table>
 
               {/* Totals */}
-              <div className="border-t pt-4">
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-black-75">Subtotal:</span>
-                    <span className="font-medium">{formatCurrency(selectedQuotationForView.subtotal)}</span>
-                  </div>
-                  {selectedQuotationForView.discount > 0 && (
-                    <div className="flex justify-between text-green-600">
-                      <span>Discount ({selectedQuotationForView.discount}%):</span>
-                      <span>-{formatCurrency(selectedQuotationForView.discountAmount)}</span>
+              <div className="flex justify-end">
+                 <div className="w-64 space-y-2">
+                    <div className="flex justify-between text-gray-600">
+                       <span>Subtotal</span>
+                       <span>{formatCurrency(selectedQuotationForView.subtotal)}</span>
                     </div>
-                  )}
-                  <div className="flex justify-between text-lg font-bold border-t pt-2">
-                    <span className="text-primary-black">Total:</span>
-                    <span className="text-primary-red">{formatCurrency(selectedQuotationForView.total)}</span>
-                  </div>
-                </div>
+                    {selectedQuotationForView.discount > 0 && (
+                       <div className="flex justify-between text-green-600">
+                          <span>Discount ({selectedQuotationForView.discount}%)</span>
+                          <span>-{formatCurrency(selectedQuotationForView.discountAmount)}</span>
+                       </div>
+                    )}
+                    <div className="flex justify-between text-xl font-bold text-blue-800 pt-4 border-t border-gray-200">
+                       <span>Total</span>
+                       <span>{formatCurrency(selectedQuotationForView.total)}</span>
+                    </div>
+                 </div>
               </div>
 
-              {/* Notes */}
-              {selectedQuotationForView.notes && (
-                <div>
-                  <h4 className="font-semibold text-primary-black mb-3">Notes</h4>
-                  <div className="bg-black-5 p-3 rounded-lg">
-                    <p className="text-sm text-black-75">{selectedQuotationForView.notes}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex justify-end gap-3 pt-4 border-t">
-                <button
-                  onClick={() => setShowViewQuotationModal(false)}
-                  className="px-4 py-2 border border-black-25 text-black-75 rounded-lg hover:bg-black-5"
-                >
-                  Close
-                </button>
-                <button
-                  onClick={() => {
-                    setShowViewQuotationModal(false)
-                    downloadPDF(selectedQuotationForView)
-                  }}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                >
-                  Download PDF
-                </button>
+              <div className="mt-8 pt-6 border-t border-gray-100 flex justify-end gap-3">
+                 <button onClick={() => downloadPDF(selectedQuotationForView)} className="px-6 py-3 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 shadow-md">
+                    Download PDF Invoice
+                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Edit Quotation Modal */}
-      {showEditQuotationModal && selectedQuotationForEdit && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-black-10">
-              <div className="flex justify-between items-center">
-                <h3 className="text-xl font-semibold text-primary-black">Edit Quotation</h3>
-                <button
-                  onClick={() => {
-                    setShowEditQuotationModal(false)
-                    setSelectedQuotationForEdit(null)
-                    resetForm()
-                  }}
-                  className="text-black-50 hover:text-black-75"
-                >
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Edit form - similar to create mode */}
-              {/* Vehicle Info */}
-              <div>
-                <h4 className="font-semibold text-primary-black mb-3">Vehicle Information</h4>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <input
-                    type="text"
-                    value={vehicleInfo.make}
-                    onChange={(e) => setVehicleInfo({ ...vehicleInfo, make: e.target.value })}
-                    placeholder="Make"
-                    className="px-3 py-2 border border-black-25 rounded-lg"
-                  />
-                  <input
-                    type="text"
-                    value={vehicleInfo.model}
-                    onChange={(e) => setVehicleInfo({ ...vehicleInfo, model: e.target.value })}
-                    placeholder="Model"
-                    className="px-3 py-2 border border-black-25 rounded-lg"
-                  />
-                  <input
-                    type="text"
-                    value={vehicleInfo.year}
-                    onChange={(e) => setVehicleInfo({ ...vehicleInfo, year: e.target.value })}
-                    placeholder="Year"
-                    className="px-3 py-2 border border-black-25 rounded-lg"
-                  />
-                  <input
-                    type="text"
-                    value={vehicleInfo.plate}
-                    onChange={(e) => setVehicleInfo({ ...vehicleInfo, plate: e.target.value })}
-                    placeholder="Plate Number"
-                    className="px-3 py-2 border border-black-25 rounded-lg"
-                  />
-                </div>
-              </div>
-
-              {/* Work Description */}
-              <div>
-                <h4 className="font-semibold text-primary-black mb-3">Work Description</h4>
-                <textarea
-                  value={workDescription}
-                  onChange={(e) => setWorkDescription(e.target.value)}
-                  rows="4"
-                  className="w-full px-3 py-2 border border-black-25 rounded-lg"
-                />
-              </div>
-
-              {/* Parts */}
-              <div>
-                <div className="flex justify-between items-center mb-3">
-                  <h4 className="font-semibold text-primary-black">Parts</h4>
-                  <button
-                    onClick={addManualPart}
-                    className="btn-primary px-4 py-2 rounded-lg text-sm"
-                  >
-                    + Add Part
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {manualParts.map((part, index) => (
-                    <div key={index} className="grid grid-cols-12 gap-2 items-end bg-gray-50 p-3 rounded">
-                      <div className="col-span-2">
-                        <input
-                          type="text"
-                          value={part.sku}
-                          onChange={(e) => updateManualPart(index, 'sku', e.target.value)}
-                          placeholder="SKU"
-                          className="w-full px-2 py-1 text-sm border rounded"
-                        />
-                      </div>
-                      <div className="col-span-4">
-                        <input
-                          type="text"
-                          value={part.partName}
-                          onChange={(e) => updateManualPart(index, 'partName', e.target.value)}
-                          placeholder="Part Name"
-                          className="w-full px-2 py-1 text-sm border rounded"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <input
-                          type="number"
-                          value={part.quantity}
-                          onChange={(e) => updateManualPart(index, 'quantity', parseInt(e.target.value) || 0)}
-                          className="w-full px-2 py-1 text-sm border rounded"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <input
-                          type="number"
-                          value={part.pricePerUnit}
-                          onChange={(e) => updateManualPart(index, 'pricePerUnit', parseFloat(e.target.value) || 0)}
-                          className="w-full px-2 py-1 text-sm border rounded"
-                        />
-                      </div>
-                      <div className="col-span-1 text-center text-sm font-semibold">
-                        {formatCurrency(part.total)}
-                      </div>
-                      <div className="col-span-1">
-                        <button
-                          onClick={() => removeManualPart(index)}
-                          className="w-full text-red-600 hover:text-red-800 text-sm"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Labor */}
-              <div>
-                <div className="flex justify-between items-center mb-3">
-                  <h4 className="font-semibold text-primary-black">Labor Charges</h4>
-                  <button
-                    onClick={addLaborCharge}
-                    className="btn-primary px-4 py-2 rounded-lg text-sm"
-                  >
-                    + Add Labor
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {laborCharges.map((labor, index) => (
-                    <div key={index} className="grid grid-cols-12 gap-2 items-end bg-green-50 p-3 rounded">
-                      <div className="col-span-2">
-                        <input
-                          type="text"
-                          value={labor.sku}
-                          onChange={(e) => updateLaborCharge(index, 'sku', e.target.value)}
-                          placeholder="SKU"
-                          className="w-full px-2 py-1 text-sm border rounded"
-                        />
-                      </div>
-                      <div className="col-span-7">
-                        <input
-                          type="text"
-                          value={labor.description}
-                          onChange={(e) => updateLaborCharge(index, 'description', e.target.value)}
-                          placeholder="Description"
-                          className="w-full px-2 py-1 text-sm border rounded"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <input
-                          type="number"
-                          value={labor.amount}
-                          onChange={(e) => updateLaborCharge(index, 'amount', parseFloat(e.target.value) || 0)}
-                          className="w-full px-2 py-1 text-sm border rounded"
-                        />
-                      </div>
-                      <div className="col-span-1">
-                        <button
-                          onClick={() => removeLaborCharge(index)}
-                          className="w-full text-red-600 hover:text-red-800 text-sm"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Summary */}
-              <div className="border-t pt-4">
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span>Subtotal:</span>
-                    <span className="font-medium">{formatCurrency(totals.subtotal)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Discount:</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={discount}
-                        onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
-                        className="w-20 px-2 py-1 text-sm border rounded"
-                      />
-                      <span>%</span>
-                      <span className="font-medium">(-{formatCurrency(totals.discountAmount)})</span>
-                    </div>
-                  </div>
-                  <div className="flex justify-between text-lg font-bold border-t pt-2">
-                    <span>Total:</span>
-                    <span className="text-primary-red">{formatCurrency(totals.total)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Additional Details */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Validity (Days)</label>
-                  <input
-                    type="number"
-                    value={validityDays}
-                    onChange={(e) => setValidityDays(parseInt(e.target.value) || 30)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Notes</label>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    rows="2"
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex justify-end gap-3 pt-4 border-t">
-                <button
-                  onClick={() => {
-                    setShowEditQuotationModal(false)
-                    setSelectedQuotationForEdit(null)
-                    resetForm()
-                  }}
-                  className="px-6 py-2 border border-black-25 text-black-75 rounded-lg hover:bg-black-5"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpdateQuotation}
-                  disabled={isSaving}
-                  className="btn-primary px-6 py-2 rounded-lg disabled:opacity-50"
-                >
-                  {isSaving ? 'Updating...' : 'Update Quotation'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

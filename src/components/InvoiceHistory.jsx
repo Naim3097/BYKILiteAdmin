@@ -6,7 +6,6 @@ import SimpleEditInvoiceModal from './SimpleEditInvoiceModal'
 import PDFGenerator from '../utils/PDFGenerator'
 
 function InvoiceHistory() {
-  console.log('🔴 InvoiceHistory COMPONENT RENDERING')
   
   const { 
     invoices, 
@@ -18,15 +17,11 @@ function InvoiceHistory() {
   } = useInvoiceContext()
   const { parts } = usePartsContext()
   
-  console.log('🔴 INVOICES COUNT:', invoices?.length || 0)
-  console.log('🔴 INVOICES DATA:', invoices)
-  
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState(null)
   const [editingInvoice, setEditingInvoice] = useState(null)
   const [deletingInvoiceId, setDeletingInvoiceId] = useState(null)
   
-  console.log('🔴 editingInvoice STATE:', editingInvoice?.id || 'null')
   const [dateFilter, setDateFilter] = useState({
     startDate: '',
     endDate: ''
@@ -110,10 +105,7 @@ function InvoiceHistory() {
 
   // Handle edit button click
   const handleEditClick = (invoice) => {
-    alert('EDIT BUTTON CLICKED!\n\nInvoice: ' + invoice.invoiceNumber + '\nID: ' + invoice.id)
-    console.log('🔴 EDIT CLICKED:', invoice)
     setEditingInvoice(invoice)
-    console.log('🔴 editingInvoice SET TO:', invoice.id)
   }
 
   // Handle edit success
@@ -123,26 +115,6 @@ function InvoiceHistory() {
 
   return (
     <div className="space-y-6">
-      {/* TEST BUTTON */}
-      <div className="bg-yellow-200 border-4 border-red-500 p-8">
-        <button 
-          onClick={() => {
-            alert('TEST BUTTON CLICKED!')
-            console.log('🔵 TEST BUTTON - invoices:', invoices.length)
-            console.log('🔵 First invoice:', invoices[0])
-            if (invoices[0]) {
-              setEditingInvoice(invoices[0])
-            } else {
-              alert('NO INVOICES FOUND!')
-            }
-          }}
-          className="btn-primary text-2xl p-6"
-          style={{ backgroundColor: 'red', color: 'white', fontSize: '24px', padding: '20px' }}
-        >
-          � TEST EDIT BUTTON - CLICK ME 🔴
-        </button>
-      </div>
-
       {/* Section Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -326,20 +298,12 @@ function InvoiceHistory() {
       )}
 
       {/* Edit Invoice Modal */}
-      {editingInvoice ? (
-        <>
-          {console.log('🔴 RENDERING MODAL FOR:', editingInvoice.id)}
-          <SimpleEditInvoiceModal
-            invoice={editingInvoice}
-            onClose={() => {
-              console.log('🔴 MODAL CLOSE CLICKED')
-              setEditingInvoice(null)
-            }}
-            onSuccess={handleEditSuccess}
-          />
-        </>
-      ) : (
-        console.log('🔴 NO EDITING INVOICE - MODAL NOT SHOWN')
+      {editingInvoice && (
+        <SimpleEditInvoiceModal
+          invoice={editingInvoice}
+          onClose={() => setEditingInvoice(null)}
+          onSuccess={handleEditSuccess}
+        />
       )}
     </div>
   )
