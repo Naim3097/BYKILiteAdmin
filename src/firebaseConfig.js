@@ -4,14 +4,14 @@ import { getFirestore, connectFirestoreEmulator, enableNetwork, disableNetwork }
 import { getStorage } from 'firebase/storage'
 import { getAuth } from 'firebase/auth'
 
-// Your web app's Firebase configuration - CORRECT FROM CONSOLE
+// Your web app's Firebase configuration - Using Environment Variables
 const firebaseConfig = {
-  apiKey: "AIzaSyBkYbWweI3F_Zulo35_bhpeOcodURbFMXA",
-  authDomain: "oxhub-42c99.firebaseapp.com",
-  projectId: "oxhub-42c99",
-  storageBucket: "oxhub-42c99.firebasestorage.app",
-  messagingSenderId: "319585203062",
-  appId: "1:319585203062:web:6453438cad0938ebb3c057"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 // Initialize Firebase
