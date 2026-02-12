@@ -118,16 +118,22 @@ function CustomerInvoiceCreation({ setActiveSection }) {
     return () => unsub()
   }, [])
 
-  // --- Calculations ---
+  // --- Calculations (Robust - all values forced to float) ---
   const calculateTotals = () => {
-    const partsTotal = manualParts.reduce((s, p) => s + (Number(p.total) || 0), 0)
-    const laborTotal = laborCharges.reduce((s, l) => s + (Number(l.amount) || 0), 0)
-    const subtotal = partsTotal + laborTotal
-    const discountAmount = (subtotal * discount) / 100
-    const total = subtotal - discountAmount
-    const depositAmount = Number(deposit) || 0
-    const balanceDue = total - depositAmount
-    const directLending = useDirectLending ? Number(directLendingAmount) || 0 : 0
+    // Recalculate each part's total from qty * price to prevent stale .total values
+    const partsTotal = manualParts.reduce((s, p) => {
+       const qty = parseFloat(p.quantity) || 0
+       const price = parseFloat(p.pricePerUnit) || 0
+       const lineTotal = Math.round(qty * price * 100) / 100 // Prevent floating point drift
+       return s + lineTotal
+    }, 0)
+    const laborTotal = laborCharges.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0)
+    const subtotal = Math.round((partsTotal + laborTotal) * 100) / 100
+    const discountAmount = Math.round((subtotal * (parseFloat(discount) || 0)) / 100 * 100) / 100
+    const total = Math.round((subtotal - discountAmount) * 100) / 100
+    const depositAmount = parseFloat(deposit) || 0
+    const balanceDue = Math.round((total - depositAmount) * 100) / 100
+    const directLending = useDirectLending ? parseFloat(directLendingAmount) || 0 : 0
     const customerPayableAmount = useDirectLending ? balanceDue - directLending : balanceDue
     
     // Profit Calc
@@ -446,7 +452,7 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                             </td>
                             <td className="px-4 py-3">{i.customerName}</td>
                             <td className="px-4 py-3 text-xs">
-                               {(i.mechanics || []).map(m => <div key={m.id}>{m.name}</div>)}
+                               {(i.mechanics || []).map(m => <div key={m.id}>{(m.name || '').split(' ')[0]}</div>)}
                             </td>
                             <td className="px-4 py-3 font-bold">{formatCurrency(i.total || i.customerTotal)}</td>
                             <td className="px-4 py-3">
@@ -491,7 +497,7 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                             </td>
                             <td className="px-4 py-3 text-right space-x-2">
                                <button onClick={() => setViewInvoice(i)} className="text-gray-600 hover:underline">View</button>
-                               <button onClick={() => { setIsEditing(true); setEditingId(i.id); setSelectedCustomer({id:i.customerId,name:i.customerName,phone:i.customerPhone}); setManualParts(i.partsOrdered||[]); setLaborCharges(i.laborCharges||[]); setPaymentStatus(i.paymentStatus); setMechanics(i.mechanics||[]); setDeposit(i.deposit||0); setViewMode('form'); }} className="text-blue-600 hover:underline">Edit</button>
+                               <button onClick={() => { setIsEditing(true); setEditingId(i.id); setSelectedCustomer({id:i.customerId,name:i.customerName,phone:i.customerPhone,email:i.customerEmail}); setManualParts(i.partsOrdered||[]); setLaborCharges(i.laborCharges||[]); setPaymentStatus(i.paymentStatus); setMechanics(i.mechanics||[]); setDeposit(i.deposit||0); setTotalPartsSupplierCost(i.partsSupplierCost||0); setDiscount(i.discount||0); setWorkDescription(i.workDescription||''); setVehicleInfo(i.vehicleInfo||{make:'',model:'',year:'',plate:''}); setNotes(i.notes||''); setUseDirectLending(!!i.useDirectLending); setDirectLendingAmount(i.directLendingAmount||0); setViewMode('form'); }} className="text-blue-600 hover:underline">Edit</button>
                                <button onClick={() => handleLink(i)} className="text-green-600 hover:underline">Link</button>
                                <button onClick={() => handleReturnJob(i)} className="text-purple-600 hover:underline">Return</button> 
                                <button onClick={() => handleDelete(i.id)} className="text-red-600 hover:underline">Del</button>
@@ -520,7 +526,10 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                 <label className="block text-sm font-bold text-gray-700 mb-2">Customer</label>
                 {selectedCustomer ? (
                    <div className="p-3 bg-blue-50 border border-blue-100 rounded flex justify-between items-center">
-                      <span className="font-bold text-blue-900">{selectedCustomer.name}</span>
+                      <div>
+                         <span className="font-bold text-blue-900">{selectedCustomer.name}</span>
+                         {selectedCustomer.phone && <span className="ml-3 text-sm text-blue-700">({selectedCustomer.phone})</span>}
+                      </div>
                       <button onClick={() => setSelectedCustomer(null)} className="text-xs text-blue-600 underline">Change</button>
                    </div>
                 ) : (
@@ -553,15 +562,15 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                    <div key={i} className="flex gap-2">
                        <input className="input-sm w-24" placeholder="SKU" value={p.sku} onChange={e => { const u=[...manualParts]; u[i].sku=e.target.value; setManualParts(u)}} />
                        <input className="input-sm flex-1" placeholder="Part Name" value={p.partName} onChange={e => { const u=[...manualParts]; u[i].partName=e.target.value; setManualParts(u)}} />
-                       <input className="input-sm w-16" type="number" value={p.quantity} onChange={e => { const u=[...manualParts]; u[i].quantity=e.target.value; u[i].total=u[i].quantity*u[i].pricePerUnit; setManualParts(u)}} />
-                       <input className="input-sm w-24" type="number" value={p.pricePerUnit} onChange={e => { const u=[...manualParts]; u[i].pricePerUnit=e.target.value; u[i].total=u[i].quantity*u[i].pricePerUnit; setManualParts(u)}} />
+                       <input className="input-sm w-16" type="number" value={p.quantity} onChange={e => { const u=[...manualParts]; u[i].quantity=parseFloat(e.target.value)||0; u[i].total=Math.round(u[i].quantity*u[i].pricePerUnit*100)/100; setManualParts(u)}} />
+                       <input className="input-sm w-24" type="number" value={p.pricePerUnit} onChange={e => { const u=[...manualParts]; u[i].pricePerUnit=parseFloat(e.target.value)||0; u[i].total=Math.round(u[i].quantity*u[i].pricePerUnit*100)/100; setManualParts(u)}} />
                        <button onClick={() => setManualParts(manualParts.filter((_,x) => x!==i))} className="text-red-500 font-bold">x</button>
                    </div>
                 ))}
                 {laborCharges.map((l, i) => (
                    <div key={i} className="flex gap-2">
                        <input className="input-sm flex-1" placeholder="Labor Description" value={l.description} onChange={e => { const u=[...laborCharges]; u[i].description=e.target.value; setLaborCharges(u)}} />
-                       <input className="input-sm w-24" type="number" value={l.amount} onChange={e => { const u=[...laborCharges]; u[i].amount=e.target.value; setLaborCharges(u)}} />
+                       <input className="input-sm w-24" type="number" value={l.amount} onChange={e => { const u=[...laborCharges]; u[i].amount=parseFloat(e.target.value)||0; setLaborCharges(u)}} />
                        <button onClick={() => setLaborCharges(laborCharges.filter((_,x) => x!==i))} className="text-red-500 font-bold">x</button>
                    </div>
                 ))}
@@ -890,10 +899,16 @@ function CustomerInvoiceCreation({ setActiveSection }) {
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
              <div className="bg-white rounded-xl shadow-xl w-full max-w-md h-96 flex flex-col p-4">
                 <div className="flex justify-between mb-2"><h3 className="font-bold">Select Customer</h3><button onClick={() => setShowCustomerModal(false)}>x</button></div>
-                <input autoFocus placeholder="Search..." className="p-2 border rounded mb-2" value={customerSearchTerm} onChange={e => setCustomerSearchTerm(e.target.value)} />
+                <input autoFocus placeholder="Search name or phone..." className="p-2 border rounded mb-2" value={customerSearchTerm} onChange={e => setCustomerSearchTerm(e.target.value)} />
                 <div className="flex-1 overflow-y-auto">
-                   {customers.filter(c => c.name?.toLowerCase().includes(customerSearchTerm.toLowerCase())).map(c => (
-                      <div key={c.id} onClick={() => { setSelectedCustomer(c); setShowCustomerModal(false)}} className="p-3 border-b hover:bg-gray-50 cursor-pointer">{c.name}</div>
+                   {customers.filter(c => {
+                      const term = customerSearchTerm.toLowerCase()
+                      return c.name?.toLowerCase().includes(term) || c.phone?.toLowerCase().includes(term)
+                   }).map(c => (
+                      <div key={c.id} onClick={() => { setSelectedCustomer(c); setShowCustomerModal(false)}} className="p-3 border-b hover:bg-gray-50 cursor-pointer flex justify-between">
+                         <span className="font-medium">{c.name}</span>
+                         <span className="text-gray-400 text-sm">{c.phone || ''}</span>
+                      </div>
                    ))}
                 </div>
              </div>

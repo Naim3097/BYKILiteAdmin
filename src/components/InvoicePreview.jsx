@@ -6,8 +6,12 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
   
   const handlePrint = () => {
     const printContent = printRef.current
+    // Build clean filename: Invoice_INV-xxx_CustomerName_Date
+    const cleanName = (customerInfo.name || 'Customer').replace(/[^a-zA-Z0-9]/g, '')
+    const dateStr = (dateCreated instanceof Date ? dateCreated : new Date()).toISOString().split('T')[0]
+    const pdfFileName = `Invoice_${invoiceNumber}_${cleanName}_${dateStr}`
     const windowPrint = window.open('', '', 'width=900,height=600')
-    windowPrint.document.write('<html><head><title>Print Invoice</title>')
+    windowPrint.document.write(`<html><head><title>${pdfFileName}</title>`)
     windowPrint.document.write('<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">')
     windowPrint.document.write(`
       <style>
@@ -121,7 +125,7 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
         </div>
         )}
 
-        {/* Invoice Page Container for Screen Preview */}
+        {/* Invoice Content - Shared between Screen Preview and Print */}
         {renderTrigger ? (
             // Hidden mode if using a custom trigger - Use Fragments to separate hidden content from visible trigger
             <>
@@ -298,8 +302,8 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
         ) : (
         <div className="flex-1 overflow-auto bg-gray-100 p-8 flex justify-center">
           
-          {/* CONTENT TO PRINT */}
-          <div ref={printRef} className="w-full h-full flex flex-col text-gray-800">
+          {/* CONTENT TO PRINT - Also used as Screen Preview */}
+          <div ref={printRef} className="bg-white shadow-lg max-w-[210mm] w-full mx-auto p-10 flex flex-col text-gray-800" style={{minHeight: '297mm'}}>
             
             {/* Header: Centered Logo & Meta Bar */}
             <div className="flex flex-col items-center mb-6">
@@ -333,8 +337,8 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                   </p>
                   <h3 className="text-sm font-bold text-gray-900 mb-1">{customerInfo.name || 'Walk-in Customer'}</h3>
                   <div className="text-gray-500 space-y-0.5">
-                     <p>{customerInfo.phone}</p>
-                     <p>{customerInfo.email}</p>
+                     {customerInfo.phone && <p>{customerInfo.phone}</p>}
+                     {customerInfo.email && <p>{customerInfo.email}</p>}
                   </div>
                </div>
                
@@ -406,14 +410,12 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                </table>
             </div>
 
-            {/* spacer to push footer down if content is short, 
-                but let it flow if long. 
-                Using margin-top: auto on footer section effectively does this in flex col */}
+            {/* Spacer to push footer down */}
             <div className="flex-grow"></div>
 
             {/* Footer Summary / Totals */}
             <div className="flex justify-end pt-4 mb-4 avoid-break">
-               <div className="w-1/2 md:w-5/12">
+               <div className="w-1/2">
                   <div className="flex justify-between text-gray-500 text-xs mb-1 px-3">
                      <span>Subtotal</span>
                      <span className="font-medium text-gray-900">{formatCurrency(totalAmount + (deposit || 0) + (invoice.discountAmount || 0))}</span>
