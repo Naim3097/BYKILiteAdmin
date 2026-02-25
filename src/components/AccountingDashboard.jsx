@@ -20,6 +20,7 @@ function AccountingDashboard() {
   const [customerInvoices, setCustomerInvoices] = useState([])
   const [transactions, setTransactions] = useState([]) // Assuming there's a transactions collection
   const [isLoading, setIsLoading] = useState(true)
+  const [accountingSearch, setAccountingSearch] = useState('')
 
   useEffect(() => {
     // Load Invoices
@@ -163,16 +164,19 @@ function AccountingDashboard() {
             <h2 className="text-2xl font-bold text-gray-900">Financial Overview</h2>
             <p className="text-gray-500 text-sm">Track revenue, payments, and outstanding invoices</p>
          </div>
-         <div className="flex bg-gray-100 p-1 rounded-lg mt-4 md:mt-0">
-            {['month', 'year', 'all'].map(t => (
-               <button 
-                 key={t}
-                 onClick={() => setSelectedTimeframe(t)}
-                 className={`px-4 py-1.5 rounded-md text-sm font-medium capitalize transition-all ${selectedTimeframe === t ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-               >
-                 This {t === 'all' ? 'Time' : t}
-               </button>
-            ))}
+         <div className="flex items-center gap-3 mt-4 md:mt-0">
+            <input placeholder="Search invoices..." value={accountingSearch} onChange={e => setAccountingSearch(e.target.value)} className="p-2 border rounded-lg text-sm w-48" />
+            <div className="flex bg-gray-100 p-1 rounded-lg">
+               {['month', 'year', 'all'].map(t => (
+                  <button 
+                    key={t}
+                    onClick={() => setSelectedTimeframe(t)}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium capitalize transition-all ${selectedTimeframe === t ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    This {t === 'all' ? 'Time' : t}
+                  </button>
+               ))}
+            </div>
          </div>
       </div>
 
@@ -231,7 +235,7 @@ function AccountingDashboard() {
                      <tr><th className="px-4 py-3">Invoice</th><th className="px-4 py-3">Customer</th><th className="px-4 py-3 text-right">Balance</th></tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                     {customerInvoices.filter(i => i.paymentStatus !== 'paid').slice(0, 5).map(i => (
+                     {customerInvoices.filter(i => i.paymentStatus !== 'paid').filter(i => !accountingSearch || i.customerName?.toLowerCase().includes(accountingSearch.toLowerCase()) || i.invoiceNumber?.toLowerCase().includes(accountingSearch.toLowerCase())).slice(0, 10).map(i => (
                         <tr key={i.id} className="hover:bg-gray-50">
                            <td className="px-4 py-3 font-mono">{i.invoiceNumber}</td>
                            <td className="px-4 py-3 truncate max-w-[120px]">{i.customerName}</td>
@@ -261,7 +265,7 @@ function AccountingDashboard() {
                      <tr><th className="px-4 py-3">Ref</th><th className="px-4 py-3">Amount</th><th className="px-4 py-3 text-right">Status</th></tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                     {customerInvoices.filter(i => i.paymentStatus === 'paid' || i.paymentStatus === 'deposit-paid').slice(0, 5).map(i => (
+                     {customerInvoices.filter(i => i.paymentStatus === 'paid' || i.paymentStatus === 'deposit-paid').filter(i => !accountingSearch || i.customerName?.toLowerCase().includes(accountingSearch.toLowerCase()) || i.invoiceNumber?.toLowerCase().includes(accountingSearch.toLowerCase())).slice(0, 10).map(i => (
                         <tr key={i.id} className="hover:bg-gray-50">
                            <td className="px-4 py-3">
                               <p className="font-bold text-gray-800">Payment</p>
@@ -287,16 +291,22 @@ function AccountingDashboard() {
               <h3 className="text-xl font-bold text-gray-900 mb-4">Record Payment</h3>
               <form onSubmit={handlePaymentSubmit} className="space-y-4">
                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Select Invoice</label>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Search & Select Invoice</label>
+                    <input placeholder="Search by invoice # or customer..." className="w-full p-2 border rounded-lg mb-2 text-sm" value={paymentData.invoiceSearch || ''} onChange={e => setPaymentData({...paymentData, invoiceSearch: e.target.value})} />
                     <select 
                        className="w-full p-2 border rounded-lg bg-gray-50" 
                        onChange={(e) => {
                           const inv = customerInvoices.find(i => i.id === e.target.value)
                           setSelectedInvoice(inv)
+                          if (inv) setPaymentData({...paymentData, amount: inv.balanceDue || inv.customerTotal || 0})
                        }}
                     >
                        <option value="">-- Choose Invoice --</option>
-                       {customerInvoices.filter(i => i.paymentStatus !== 'paid').map(i => (
+                       {customerInvoices.filter(i => i.paymentStatus !== 'paid').filter(i => {
+                          const s = (paymentData.invoiceSearch || '').toLowerCase()
+                          if (!s) return true
+                          return i.invoiceNumber?.toLowerCase().includes(s) || i.customerName?.toLowerCase().includes(s)
+                       }).map(i => (
                           <option key={i.id} value={i.id}>#{i.invoiceNumber} - {i.customerName} ({formatCurrency(i.balanceDue || i.customerTotal)})</option>
                        ))}
                     </select>

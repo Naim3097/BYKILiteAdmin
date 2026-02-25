@@ -137,6 +137,11 @@ class PDFGenerator {
         doc.text(invoice.customerInfo.email, 20, yPos)
         yPos += 6
       }
+      if (invoice.customerInfo.ic) {
+        doc.setTextColor(102, 102, 102)
+        doc.text(`IC: ${invoice.customerInfo.ic}`, 20, yPos)
+        yPos += 6
+      }
       if (invoice.customerInfo.address) {
         doc.setTextColor(102, 102, 102)
         const addressLines = doc.splitTextToSize(invoice.customerInfo.address, 80)
@@ -294,7 +299,8 @@ class PDFGenerator {
     // Discount (if applicable)
     if (invoice.discountAmount && invoice.discountAmount > 0) {
       doc.setTextColor(0, 0, 0)
-      doc.text(`Discount (${invoice.discount || 0}%):`, labelX, yPos)
+      const discountLabel = invoice.discountType === 'fixed' ? 'Discount (Fixed):' : `Discount (${invoice.discount || 0}%):`
+      doc.text(discountLabel, labelX, yPos)
       doc.text(`-RM${invoice.discountAmount.toFixed(2)}`, amountX, yPos)
       yPos += 6
     }
@@ -516,6 +522,12 @@ class PDFGenerator {
         doc.text(invoice.customerInfo.phone, 20, yPos)
         yPos += 8
       }
+      if (invoice.customerInfo.ic) {
+        doc.setFontSize(10)
+        doc.setTextColor(102, 102, 102)
+        doc.text(`IC: ${invoice.customerInfo.ic}`, 20, yPos)
+        yPos += 8
+      }
       if (invoice.customerInfo.address) {
         doc.setFontSize(10)
         const addressLines = doc.splitTextToSize(invoice.customerInfo.address, 80)
@@ -572,15 +584,63 @@ class PDFGenerator {
     
     yPos += 10
     
-    // Total Amount Section
+    // Totals Section
     const totalsStartX = 120
-    // Total Amount
-    doc.setFontSize(14)
-    doc.setTextColor(220, 38, 38) // Red
-    doc.text('Total Amount:', totalsStartX, yPos)
-    doc.text(`RM${invoice.totalAmount.toFixed(2)}`, 180, yPos)
+    const totalsAmountX = 170
     
-    yPos += 20
+    // Subtotal
+    doc.setFontSize(9)
+    doc.setTextColor(0, 0, 0)
+    doc.text('Subtotal:', totalsStartX, yPos)
+    const subtotalVal = invoice.discountAmount ? (invoice.totalAmount + invoice.discountAmount) : invoice.totalAmount
+    doc.text(`RM${subtotalVal.toFixed(2)}`, totalsAmountX, yPos)
+    yPos += 6
+    
+    // Discount (if applicable)
+    if (invoice.discountAmount && invoice.discountAmount > 0) {
+      doc.setTextColor(0, 0, 0)
+      const discountLabel = invoice.discountType === 'fixed' ? 'Discount (Fixed):' : `Discount (${invoice.discount || 0}%):`
+      doc.text(discountLabel, totalsStartX, yPos)
+      doc.text(`-RM${invoice.discountAmount.toFixed(2)}`, totalsAmountX, yPos)
+      yPos += 6
+    }
+    
+    // Line above total
+    yPos += 2
+    doc.setDrawColor(0, 0, 0)
+    doc.line(totalsStartX, yPos, 190, yPos)
+    yPos += 5
+    
+    // Total Amount
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(220, 38, 38) // Red
+    doc.text('TOTAL:', totalsStartX, yPos)
+    doc.text(`RM${invoice.totalAmount.toFixed(2)}`, totalsAmountX, yPos)
+    doc.setFont('helvetica', 'normal')
+    yPos += 8
+    
+    // Deposit & Balance Due (if applicable)
+    if (invoice.deposit && invoice.deposit > 0) {
+      doc.setFontSize(9)
+      doc.setTextColor(0, 0, 0)
+      doc.text('Deposit Paid:', totalsStartX, yPos)
+      doc.text(`-RM${invoice.deposit.toFixed(2)}`, totalsAmountX, yPos)
+      yPos += 8
+      
+      doc.setDrawColor(0, 0, 0)
+      doc.line(totalsStartX, yPos, 190, yPos)
+      yPos += 5
+      
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.text('BALANCE DUE:', totalsStartX, yPos)
+      doc.text(`RM${(invoice.balanceDue || 0).toFixed(2)}`, totalsAmountX, yPos)
+      doc.setFont('helvetica', 'normal')
+      yPos += 8
+    }
+    
+    yPos += 10
     
     // Notes (if any)
     if (invoice.notes) {

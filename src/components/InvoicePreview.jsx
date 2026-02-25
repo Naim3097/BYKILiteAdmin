@@ -168,6 +168,8 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                             <div className="text-gray-500 space-y-0.5">
                                 <p>{customerInfo.phone}</p>
                                 <p>{customerInfo.email}</p>
+                                {customerInfo.ic && <p>IC: {customerInfo.ic}</p>}
+                                {customerInfo.address && <p>{customerInfo.address}</p>}
                             </div>
                         </div>
                         
@@ -244,12 +246,12 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                         <div className="w-1/2 md:w-5/12">
                             <div className="flex justify-between text-gray-500 text-xs mb-1 px-3">
                                 <span>Subtotal</span>
-                                <span className="font-medium text-gray-900">{formatCurrency(totalAmount + (deposit || 0) + (invoice.discountAmount || 0))}</span>
+                                <span className="font-medium text-gray-900">{formatCurrency(totalAmount + (invoice.discountAmount || 0))}</span>
                             </div>
                             
                             {invoice.discountAmount > 0 && (
                                 <div className="flex justify-between text-red-500 text-xs mb-1 px-3">
-                                    <span>Discount</span>
+                                    <span>Discount {invoice.discountType === 'fixed' ? '(Fixed)' : `(${invoice.discount || 0}%)`}</span>
                                     <span>- {formatCurrency(invoice.discountAmount)}</span>
                                 </div>
                             )}
@@ -339,6 +341,8 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                   <div className="text-gray-500 space-y-0.5">
                      {customerInfo.phone && <p>{customerInfo.phone}</p>}
                      {customerInfo.email && <p>{customerInfo.email}</p>}
+                     {customerInfo.ic && <p>IC: {customerInfo.ic}</p>}
+                     {customerInfo.address && <p>{customerInfo.address}</p>}
                   </div>
                </div>
                
@@ -418,12 +422,12 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                <div className="w-1/2">
                   <div className="flex justify-between text-gray-500 text-xs mb-1 px-3">
                      <span>Subtotal</span>
-                     <span className="font-medium text-gray-900">{formatCurrency(totalAmount + (deposit || 0) + (invoice.discountAmount || 0))}</span>
+                     <span className="font-medium text-gray-900">{formatCurrency(totalAmount + (invoice.discountAmount || 0))}</span>
                   </div>
                   
                   {invoice.discountAmount > 0 && (
                      <div className="flex justify-between text-red-500 text-xs mb-1 px-3">
-                        <span>Discount</span>
+                        <span>Discount {invoice.discountType === 'fixed' ? '(Fixed)' : `(${invoice.discount || 0}%)`}</span>
                         <span>- {formatCurrency(invoice.discountAmount)}</span>
                      </div>
                   )}

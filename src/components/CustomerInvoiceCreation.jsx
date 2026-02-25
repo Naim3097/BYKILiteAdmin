@@ -30,6 +30,7 @@ function CustomerInvoiceCreation({ setActiveSection }) {
   const [paymentTerms, setPaymentTerms] = useState(30)
   const [paymentStatus, setPaymentStatus] = useState('pending')
   const [discount, setDiscount] = useState(0)
+  const [discountType, setDiscountType] = useState('percentage') // 'percentage' | 'fixed'
   const [deposit, setDeposit] = useState(0)
   const [depositStatus, setDepositStatus] = useState('none') // 'none', 'paid_offline', 'link_generated', 'paid_link'
   const [notes, setNotes] = useState('')
@@ -51,6 +52,9 @@ function CustomerInvoiceCreation({ setActiveSection }) {
   const [invoiceHistory, setInvoiceHistory] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const [sortField, setSortField] = useState('dateCreated') // 'dateCreated' | 'total' | 'customerName'
+  const [sortDirection, setSortDirection] = useState('desc') // 'asc' | 'desc'
+  const [statusFilter, setStatusFilter] = useState('all') // 'all' | 'pending' | 'deposit-paid' | 'paid'
 
   const { customers = [] } = useCustomer() || {}
   const { employees = [] } = useEmployee() || {}
@@ -129,7 +133,9 @@ function CustomerInvoiceCreation({ setActiveSection }) {
     }, 0)
     const laborTotal = laborCharges.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0)
     const subtotal = Math.round((partsTotal + laborTotal) * 100) / 100
-    const discountAmount = Math.round((subtotal * (parseFloat(discount) || 0)) / 100 * 100) / 100
+    const discountAmount = discountType === 'fixed'
+      ? Math.round((parseFloat(discount) || 0) * 100) / 100
+      : Math.round((subtotal * (parseFloat(discount) || 0)) / 100 * 100) / 100
     const total = Math.round((subtotal - discountAmount) * 100) / 100
     const depositAmount = parseFloat(deposit) || 0
     const balanceDue = Math.round((total - depositAmount) * 100) / 100
@@ -164,7 +170,9 @@ function CustomerInvoiceCreation({ setActiveSection }) {
         id: invoice.customerId,
         name: invoice.customerName,
         phone: invoice.customerPhone,
-        email: invoice.customerEmail
+        email: invoice.customerEmail,
+        ic: invoice.customerIC || '',
+        address: invoice.customerAddress || ''
      })
      setParentInvoiceId(invoice.id)
      setParentInvoiceNumber(invoice.invoiceNumber)
@@ -201,6 +209,8 @@ function CustomerInvoiceCreation({ setActiveSection }) {
           customerName: selectedCustomer.name || 'Unknown',
           customerPhone: selectedCustomer.phone || '',
           customerEmail: selectedCustomer.email || '',
+          customerIC: selectedCustomer.ic || '',
+          customerAddress: selectedCustomer.address || '',
           workDescription: workDescription || '',
           vehicleInfo: vehicleInfo || { make: '', model: '', year: '', plate: '' },
           partsOrdered: manualParts || [],
@@ -210,6 +220,7 @@ function CustomerInvoiceCreation({ setActiveSection }) {
           laborTotal: Number(t.laborTotal) || 0,
           subtotal: Number(t.subtotal) || 0,
           discount: Number(discount) || 0,
+          discountType: discountType || 'percentage',
           discountAmount: Number(t.discountAmount) || 0,
           deposit: Number(t.deposit) || 0,
           depositStatus: t.deposit > 0 ? 'paid_offline' : (requestDepositAmount > 0 ? 'link_generated' : 'none'),
@@ -264,6 +275,7 @@ function CustomerInvoiceCreation({ setActiveSection }) {
      setVehicleInfo({ make: '', model: '', year: '', plate: '' })
      setPaymentStatus('pending')
      setDiscount(0)
+     setDiscountType('percentage')
      setDeposit(0)
      setDepositStatus('none')
      setIsEditing(false)
@@ -427,26 +439,72 @@ function CustomerInvoiceCreation({ setActiveSection }) {
        {/* List View */}
        {viewMode === 'list' && (
           <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-             <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
-                <h3 className="font-bold text-gray-700">Invoice History</h3>
-                <input placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="p-2 border rounded text-sm w-64" />
+             <div className="p-4 bg-gray-50 border-b space-y-3">
+                <div className="flex justify-between items-center">
+                   <h3 className="font-bold text-gray-700">Invoice History</h3>
+                   <input placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="p-2 border rounded text-sm w-64" />
+                </div>
+                {/* Filters & Sort */}
+                <div className="flex flex-wrap gap-2 items-center">
+                   <span className="text-xs font-bold text-gray-400 uppercase">Filter:</span>
+                   {[{key:'all',label:'All'},{key:'pending',label:'Unpaid'},{key:'deposit-paid',label:'Deposit Paid'},{key:'paid',label:'Full Payment'}].map(f => (
+                      <button key={f.key} onClick={() => setStatusFilter(f.key)} className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${statusFilter === f.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'}`}>{f.label}</button>
+                   ))}
+                   <span className="mx-2 text-gray-300">|</span>
+                   <span className="text-xs font-bold text-gray-400 uppercase">Sort:</span>
+                   <select value={sortField} onChange={e => setSortField(e.target.value)} className="text-xs p-1.5 border rounded bg-white text-gray-700">
+                      <option value="dateCreated">Date Created</option>
+                      <option value="total">Amount</option>
+                      <option value="customerName">Customer Name</option>
+                      <option value="balanceDue">Balance Due</option>
+                   </select>
+                   <button onClick={() => setSortDirection(d => d === 'asc' ? 'desc' : 'asc')} className="px-2 py-1 border rounded text-xs bg-white hover:bg-gray-100" title="Toggle sort direction">
+                      {sortDirection === 'asc' ? '↑ Asc' : '↓ Desc'}
+                   </button>
+                </div>
              </div>
              <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                    <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
                       <tr>
+                         <th className="px-4 py-3 cursor-pointer hover:text-gray-700" onClick={() => { setSortField('dateCreated'); setSortDirection(d => d === 'asc' ? 'desc' : 'asc') }}>Date {sortField === 'dateCreated' && (sortDirection === 'asc' ? '↑' : '↓')}</th>
                          <th className="px-4 py-3">Ref #</th>
-                         <th className="px-4 py-3">Customer</th>
+                         <th className="px-4 py-3 cursor-pointer hover:text-gray-700" onClick={() => { setSortField('customerName'); setSortDirection(d => d === 'asc' ? 'desc' : 'asc') }}>Customer {sortField === 'customerName' && (sortDirection === 'asc' ? '↑' : '↓')}</th>
                          <th className="px-4 py-3">Mechanic</th>
-                         <th className="px-4 py-3">Amount</th>
+                         <th className="px-4 py-3 cursor-pointer hover:text-gray-700" onClick={() => { setSortField('total'); setSortDirection(d => d === 'asc' ? 'desc' : 'asc') }}>Amount {sortField === 'total' && (sortDirection === 'asc' ? '↑' : '↓')}</th>
                          <th className="px-4 py-3">Deposit</th>
                          <th className="px-4 py-3">Status</th>
                          <th className="px-4 py-3 text-right">Actions</th>
                       </tr>
                    </thead>
                    <tbody className="divide-y divide-gray-100">
-                      {invoiceHistory.filter(i => !searchQuery || i.customerName?.toLowerCase().includes(searchQuery.toLowerCase()) || i.invoiceNumber?.toLowerCase().includes(searchQuery.toLowerCase())).map(i => (
+                      {invoiceHistory
+                         .filter(i => !searchQuery || i.customerName?.toLowerCase().includes(searchQuery.toLowerCase()) || i.invoiceNumber?.toLowerCase().includes(searchQuery.toLowerCase()))
+                         .filter(i => {
+                            if (statusFilter === 'all') return true
+                            if (statusFilter === 'pending') return i.paymentStatus !== 'paid' && i.paymentStatus !== 'deposit-paid'
+                            return i.paymentStatus === statusFilter
+                         })
+                         .sort((a, b) => {
+                            let valA, valB
+                            if (sortField === 'dateCreated') {
+                               valA = new Date(a.dateCreated); valB = new Date(b.dateCreated)
+                            } else if (sortField === 'total') {
+                               valA = Number(a.total || a.customerTotal || 0); valB = Number(b.total || b.customerTotal || 0)
+                            } else if (sortField === 'customerName') {
+                               valA = (a.customerName || '').toLowerCase(); valB = (b.customerName || '').toLowerCase()
+                            } else if (sortField === 'balanceDue') {
+                               valA = Number(a.balanceDue || 0); valB = Number(b.balanceDue || 0)
+                            } else {
+                               valA = a[sortField]; valB = b[sortField]
+                            }
+                            if (valA < valB) return sortDirection === 'asc' ? -1 : 1
+                            if (valA > valB) return sortDirection === 'asc' ? 1 : -1
+                            return 0
+                         })
+                         .map(i => (
                          <tr key={i.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-xs text-gray-500">{new Date(i.dateCreated).toLocaleDateString()}</td>
                             <td className="px-4 py-3 font-mono">{i.invoiceNumber} 
                                {i.parentInvoiceNumber && <span className="block text-[10px] text-purple-500">Ret: #{i.parentInvoiceNumber}</span>}
                             </td>
@@ -497,7 +555,7 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                             </td>
                             <td className="px-4 py-3 text-right space-x-2">
                                <button onClick={() => setViewInvoice(i)} className="text-gray-600 hover:underline">View</button>
-                               <button onClick={() => { setIsEditing(true); setEditingId(i.id); setSelectedCustomer({id:i.customerId,name:i.customerName,phone:i.customerPhone,email:i.customerEmail}); setManualParts(i.partsOrdered||[]); setLaborCharges(i.laborCharges||[]); setPaymentStatus(i.paymentStatus); setMechanics(i.mechanics||[]); setDeposit(i.deposit||0); setTotalPartsSupplierCost(i.partsSupplierCost||0); setDiscount(i.discount||0); setWorkDescription(i.workDescription||''); setVehicleInfo(i.vehicleInfo||{make:'',model:'',year:'',plate:''}); setNotes(i.notes||''); setUseDirectLending(!!i.useDirectLending); setDirectLendingAmount(i.directLendingAmount||0); setViewMode('form'); }} className="text-blue-600 hover:underline">Edit</button>
+                               <button onClick={() => { setIsEditing(true); setEditingId(i.id); setSelectedCustomer({id:i.customerId,name:i.customerName,phone:i.customerPhone,email:i.customerEmail,ic:i.customerIC||'',address:i.customerAddress||''}); setManualParts(i.partsOrdered||[]); setLaborCharges(i.laborCharges||[]); setPaymentStatus(i.paymentStatus); setMechanics(i.mechanics||[]); setDeposit(i.deposit||0); setTotalPartsSupplierCost(i.partsSupplierCost||0); setDiscount(i.discount||0); setDiscountType(i.discountType||'percentage'); setWorkDescription(i.workDescription||''); setVehicleInfo(i.vehicleInfo||{make:'',model:'',year:'',plate:''}); setNotes(i.notes||''); setUseDirectLending(!!i.useDirectLending); setDirectLendingAmount(i.directLendingAmount||0); setViewMode('form'); }} className="text-blue-600 hover:underline">Edit</button>
                                <button onClick={() => handleLink(i)} className="text-green-600 hover:underline">Link</button>
                                <button onClick={() => handleReturnJob(i)} className="text-purple-600 hover:underline">Return</button> 
                                <button onClick={() => handleDelete(i.id)} className="text-red-600 hover:underline">Del</button>
@@ -525,28 +583,68 @@ function CustomerInvoiceCreation({ setActiveSection }) {
              <div className="mb-6">
                 <label className="block text-sm font-bold text-gray-700 mb-2">Customer</label>
                 {selectedCustomer ? (
-                   <div className="p-3 bg-blue-50 border border-blue-100 rounded flex justify-between items-center">
-                      <div>
-                         <span className="font-bold text-blue-900">{selectedCustomer.name}</span>
-                         {selectedCustomer.phone && <span className="ml-3 text-sm text-blue-700">({selectedCustomer.phone})</span>}
+                   <div className="p-3 bg-blue-50 border border-blue-100 rounded space-y-2">
+                      <div className="flex justify-between items-center">
+                         <div>
+                            <span className="font-bold text-blue-900">{selectedCustomer.name}</span>
+                            {selectedCustomer.phone && <span className="ml-3 text-sm text-blue-700">({selectedCustomer.phone})</span>}
+                         </div>
+                         <button onClick={() => setSelectedCustomer(null)} className="text-xs text-blue-600 underline">Change</button>
                       </div>
-                      <button onClick={() => setSelectedCustomer(null)} className="text-xs text-blue-600 underline">Change</button>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                         <div>
+                            <label className="block text-[10px] font-bold text-blue-400 uppercase">IC Number (Optional)</label>
+                            <input placeholder="e.g. 900101-14-5678" className="w-full p-1.5 text-sm border border-blue-200 rounded bg-white" value={selectedCustomer.ic || ''} onChange={e => setSelectedCustomer({...selectedCustomer, ic: e.target.value})} />
+                         </div>
+                         <div>
+                            <label className="block text-[10px] font-bold text-blue-400 uppercase">Address (Optional)</label>
+                            <input placeholder="Customer address" className="w-full p-1.5 text-sm border border-blue-200 rounded bg-white" value={selectedCustomer.address || ''} onChange={e => setSelectedCustomer({...selectedCustomer, address: e.target.value})} />
+                         </div>
+                      </div>
                    </div>
                 ) : (
                    <button onClick={() => setShowCustomerModal(true)} className="w-full p-4 border-2 border-dashed border-gray-300 rounded text-gray-500 hover:bg-gray-50 font-bold">+ Select Customer</button>
                 )}
              </div>
              
-             {/* Vehicle & Work */}
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+             {/* Vehicle Info */}
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                  <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Vehicle</label>
-                    <input placeholder="Make/Model/Plate" className="input-std" value={vehicleInfo.model} onChange={e => setVehicleInfo({...vehicleInfo, model: e.target.value})} />
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Make / Model</label>
+                    <input placeholder="e.g. Honda Civic" className="input-std" value={`${vehicleInfo.make || ''}${vehicleInfo.make && vehicleInfo.model ? ' ' : ''}${vehicleInfo.model || ''}`} onChange={e => {
+                       const val = e.target.value
+                       const parts = val.split(' ')
+                       setVehicleInfo({...vehicleInfo, make: parts[0] || '', model: parts.slice(1).join(' ') || ''})
+                    }} />
+                 </div>
+                 <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Plate No</label>
+                    <input placeholder="e.g. WA 1234 B" className="input-std" value={vehicleInfo.plate || ''} onChange={e => setVehicleInfo({...vehicleInfo, plate: e.target.value})} />
                  </div>
                  <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Description</label>
                     <input placeholder="Work Description" className="input-std" value={workDescription} onChange={e => setWorkDescription(e.target.value)} />
                  </div>
+             </div>
+
+             {/* Discount */}
+             <div className="bg-gray-50 p-4 rounded border border-gray-200 mb-4">
+                <h4 className="font-bold text-xs uppercase text-gray-600 mb-2">Discount</h4>
+                <div className="flex flex-wrap gap-3 items-end">
+                   <div className="flex bg-white border rounded overflow-hidden">
+                      <button onClick={() => setDiscountType('percentage')} className={`px-3 py-1.5 text-xs font-bold transition-colors ${discountType === 'percentage' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>%</button>
+                      <button onClick={() => setDiscountType('fixed')} className={`px-3 py-1.5 text-xs font-bold transition-colors ${discountType === 'fixed' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>RM</button>
+                   </div>
+                   <div className="flex-1 min-w-[120px]">
+                      <label className="block text-xs text-gray-400 mb-0.5">{discountType === 'percentage' ? 'Discount %' : 'Discount Amount (RM)'}</label>
+                      <input type="number" className="input-sm w-full bg-white" placeholder="0" value={discount} onChange={e => setDiscount(e.target.value)} />
+                   </div>
+                   {Number(discount) > 0 && (
+                      <div className="text-sm text-red-600 font-bold">
+                         -{formatCurrency(totals.discountAmount)}
+                      </div>
+                   )}
+                </div>
              </div>
 
              {/* Line Items */}
@@ -641,6 +739,12 @@ function CustomerInvoiceCreation({ setActiveSection }) {
              {/* Footer Actions */}
              <div className="flex justify-between items-center pt-4 border-t mt-6">
                  <div>
+                    {totals.discountAmount > 0 && (
+                       <div className="text-sm space-y-0.5 mb-1">
+                          <div className="flex gap-6 text-gray-500"><span>Subtotal</span> <span>{formatCurrency(totals.subtotal)}</span></div>
+                          <div className="flex gap-6 text-red-500"><span>Discount {discountType === 'fixed' ? '(Fixed)' : `(${discount}%)`}</span> <span>-{formatCurrency(totals.discountAmount)}</span></div>
+                       </div>
+                    )}
                     <p className="text-sm text-gray-500">Total Amount</p>
                     <p className="text-3xl font-bold text-gray-900">{formatCurrency(totals.total)}</p>
                  </div>
@@ -720,7 +824,9 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                     customerInfo: {
                         name: viewInvoice.customerName,
                         phone: viewInvoice.customerPhone,
-                        email: viewInvoice.customerEmail
+                        email: viewInvoice.customerEmail,
+                        ic: viewInvoice.customerIC || '',
+                        address: viewInvoice.customerAddress || ''
                     },
                     vehicleInfo: viewInvoice.vehicleInfo || {},
                     items: [
@@ -742,6 +848,9 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                     totalAmount: Number(viewInvoice.total || viewInvoice.customerTotal || 0),
                     deposit: Number(viewInvoice.deposit || 0),
                     balanceDue: Number(viewInvoice.balanceDue ?? ((viewInvoice.total || viewInvoice.customerTotal || 0) - (viewInvoice.deposit || 0))),
+                    discount: viewInvoice.discount || 0,
+                    discountType: viewInvoice.discountType || 'percentage',
+                    discountAmount: viewInvoice.discountAmount || 0,
                     notes: viewInvoice.notes || (viewInvoice.workDescription ? `Work: ${viewInvoice.workDescription}` : '')
                 }} 
                 onClose={() => setShowPDF(false)} 
@@ -773,6 +882,8 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                                   <p className="font-bold text-lg text-gray-900">{viewInvoice.customerName}</p>
                                   <p className="text-gray-600">{viewInvoice.customerPhone}</p>
                                   <p className="text-sm text-gray-500">{viewInvoice.customerEmail}</p>
+                                  {viewInvoice.customerIC && <p className="text-sm text-gray-500">IC: {viewInvoice.customerIC}</p>}
+                                  {viewInvoice.customerAddress && <p className="text-sm text-gray-500">{viewInvoice.customerAddress}</p>}
                               </div>
                           </div>
                           <div className="p-5 bg-gray-50 rounded-lg border border-gray-100">
@@ -878,7 +989,14 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                           </div>
                       
                           <div className="w-full md:w-80 space-y-3 bg-white p-4 rounded border shadow-sm">
-                               <div className="flex justify-between text-gray-600"><span>Subtotal</span> <span>{formatCurrency(viewInvoice.total || viewInvoice.customerTotal)}</span></div>
+                               <div className="flex justify-between text-gray-600"><span>Subtotal</span> <span>{formatCurrency(viewInvoice.subtotal || viewInvoice.total || viewInvoice.customerTotal)}</span></div>
+                               {(viewInvoice.discountAmount > 0) && (
+                                  <div className="flex justify-between text-red-500">
+                                     <span>Discount {viewInvoice.discountType === 'fixed' ? '(Fixed)' : `(${viewInvoice.discount || 0}%)`}</span>
+                                     <span>-{formatCurrency(viewInvoice.discountAmount)}</span>
+                                  </div>
+                               )}
+                               <div className="flex justify-between text-gray-600"><span>Total</span> <span className="font-bold">{formatCurrency(viewInvoice.total || viewInvoice.customerTotal)}</span></div>
                                <div className="flex justify-between text-gray-600"><span>Deposit Paid</span> <span className="text-red-500">-{formatCurrency(viewInvoice.deposit || 0)}</span></div>
                                <div className="border-t pt-2 mt-2">
                                   <div className="flex justify-between items-baseline mb-1">
