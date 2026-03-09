@@ -18,6 +18,7 @@ function CustomerInvoiceCreation({ setActiveSection }) {
   const [showCustomerModal, setShowCustomerModal] = useState(false)
   const [viewInvoice, setViewInvoice] = useState(null)
   const [showPDF, setShowPDF] = useState(false)
+  const [showReceipt, setShowReceipt] = useState(null)
   const [customerSearchTerm, setCustomerSearchTerm] = useState('')
   const [paymentLinkModal, setPaymentLinkModal] = useState({ show: false, url: '', invoice: null, loading: false, error: null })
   const [analysisSearch, setAnalysisSearch] = useState('')
@@ -557,6 +558,7 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                                <button onClick={() => setViewInvoice(i)} className="text-gray-600 hover:underline">View</button>
                                <button onClick={() => { setIsEditing(true); setEditingId(i.id); setSelectedCustomer({id:i.customerId,name:i.customerName,phone:i.customerPhone,email:i.customerEmail,ic:i.customerIC||'',address:i.customerAddress||''}); setManualParts(i.partsOrdered||[]); setLaborCharges(i.laborCharges||[]); setPaymentStatus(i.paymentStatus); setMechanics(i.mechanics||[]); setDeposit(i.deposit||0); setTotalPartsSupplierCost(i.partsSupplierCost||0); setDiscount(i.discount||0); setDiscountType(i.discountType||'percentage'); setWorkDescription(i.workDescription||''); setVehicleInfo(i.vehicleInfo||{make:'',model:'',year:'',plate:''}); setNotes(i.notes||''); setUseDirectLending(!!i.useDirectLending); setDirectLendingAmount(i.directLendingAmount||0); setViewMode('form'); }} className="text-blue-600 hover:underline">Edit</button>
                                <button onClick={() => handleLink(i)} className="text-green-600 hover:underline">Link</button>
+                               {i.paymentStatus === 'paid' && <button onClick={() => setShowReceipt(i)} className="text-teal-600 hover:underline">Receipt</button>}
                                <button onClick={() => handleReturnJob(i)} className="text-purple-600 hover:underline">Return</button> 
                                <button onClick={() => handleDelete(i.id)} className="text-red-600 hover:underline">Del</button>
                             </td>
@@ -812,6 +814,50 @@ function CustomerInvoiceCreation({ setActiveSection }) {
              </table>
              </div>
           </div>
+       )}
+
+       {/* Receipt Modal */}
+       {showReceipt && (
+          <InvoicePreview 
+              invoice={{
+                  invoiceNumber: showReceipt.invoiceNumber,
+                  dateCreated: showReceipt.dateCreated,
+                  customerInfo: {
+                      name: showReceipt.customerName,
+                      phone: showReceipt.customerPhone,
+                      email: showReceipt.customerEmail,
+                      ic: showReceipt.customerIC || '',
+                      address: showReceipt.customerAddress || ''
+                  },
+                  vehicleInfo: showReceipt.vehicleInfo || {},
+                  items: [
+                  ...(showReceipt.partsOrdered || []).map(p => ({
+                      kodProduk: p.sku || 'PART',
+                      namaProduk: p.partName,
+                      quantity: Number(p.quantity),
+                      finalPrice: Number(p.pricePerUnit),
+                      totalPrice: Number(p.total)
+                  })),
+                  ...(showReceipt.laborCharges || []).map(l => ({
+                      kodProduk: 'LABOR',
+                      namaProduk: l.description,
+                      quantity: 1,
+                      finalPrice: Number(l.amount),
+                      totalPrice: Number(l.amount)
+                  }))
+                  ],
+                  totalAmount: Number(showReceipt.total || showReceipt.customerTotal || 0),
+                  deposit: Number(showReceipt.deposit || 0),
+                  balanceDue: 0,
+                  discount: showReceipt.discount || 0,
+                  discountType: showReceipt.discountType || 'percentage',
+                  discountAmount: showReceipt.discountAmount || 0,
+                  notes: showReceipt.notes || (showReceipt.workDescription ? `Work: ${showReceipt.workDescription}` : '')
+              }} 
+              onClose={() => setShowReceipt(null)} 
+              isViewMode={true}
+              isReceipt={true}
+          />
        )}
 
        {/* Modals */}

@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react'
 import { logoBase64 } from '../assets/logo'
 
-const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger }) => {
+const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger, isReceipt = false }) => {
   const printRef = useRef()
   
   const handlePrint = () => {
@@ -9,7 +9,7 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
     // Build clean filename: Invoice_INV-xxx_CustomerName_Date
     const cleanName = (customerInfo.name || 'Customer').replace(/[^a-zA-Z0-9]/g, '')
     const dateStr = (dateCreated instanceof Date ? dateCreated : new Date()).toISOString().split('T')[0]
-    const pdfFileName = `Invoice_${invoiceNumber}_${cleanName}_${dateStr}`
+    const pdfFileName = `${isReceipt ? 'Receipt' : 'Invoice'}_${invoiceNumber}_${cleanName}_${dateStr}`
     const windowPrint = window.open('', '', 'width=900,height=600')
     windowPrint.document.write(`<html><head><title>${pdfFileName}</title>`)
     windowPrint.document.write('<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">')
@@ -34,7 +34,7 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
         .page-container {
           width: 100%;
           margin: 0;
-          padding: 0; 
+          padding: 10mm 10mm; 
           box-sizing: border-box;
           background: white;
         } 
@@ -42,12 +42,13 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
         table { width: 100%; border-collapse: collapse; }
         thead { display: table-header-group; } /* Essential for repeating headers */
         tr { page-break-inside: avoid; }
-        .page-break { page-break-before: always; }
+        .page-break { page-break-before: always; padding-top: 10mm; }
+        .avoid-break { break-inside: avoid; page-break-inside: avoid; }
+        .flex-grow { display: none; } /* Remove spacer in print — prevents bad page breaks */
 
         @media print {
           body { margin: 0; }
           .no-print { display: none; }
-          .avoid-break { break-inside: avoid; page-break-inside: avoid; }
         }
       </style>
     `)
@@ -105,7 +106,7 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
         <div className="bg-gray-800 text-white p-4 flex justify-between items-center shadow-md print:hidden">
           <h2 className="font-bold text-lg flex items-center gap-2">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-            Invoice Preview
+            {isReceipt ? 'Receipt Preview' : 'Invoice Preview'}
           </h2>
           <div className="flex gap-3">
             <button 
@@ -144,7 +145,7 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                         {/* Meta Data Strap */}
                         <div className="w-full flex justify-between items-center border-y border-gray-100 py-3">
                             <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Invoice</span>
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{isReceipt ? 'Receipt' : 'Invoice'}</span>
                                 <span className="text-sm font-bold text-gray-900 font-mono">#{invoiceNumber}</span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -162,7 +163,7 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                         {/* Bill To */}
                         <div className="w-1/2">
                             <p className="uppercase text-[10px] font-bold text-gray-400 tracking-wider mb-2 border-b border-gray-100 pb-1">
-                                Billed To
+                                {isReceipt ? 'Received From' : 'Billed To'}
                             </p>
                             <h3 className="text-sm font-bold text-gray-900 mb-1">{customerInfo.name || 'Walk-in Customer'}</h3>
                             <div className="text-gray-500 space-y-0.5">
@@ -212,28 +213,39 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
 
                         {/* Items Table */}
                         <div className="mb-4">
-                        <table className="w-full text-left text-xs">
-                            <thead className="bg-gray-50 text-gray-600 font-semibold border-y border-gray-200 uppercase tracking-wider">
-                                <tr>
-                                    <th className="py-2 pl-2">#</th>
-                                    <th className="py-2">Description</th>
-                                    <th className="py-2 text-center">Qty</th>
-                                    <th className="py-2 text-right">Price</th>
-                                    <th className="py-2 text-right pr-2">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {displayItems.map((item, index) => (
-                                    <tr key={index} className="border-b border-gray-100">
-                                    <td className="py-2 pl-2 text-gray-400 font-mono text-[10px]">{index + 1}</td>
-                                    <td className="py-2 font-medium text-gray-800">{item.description}</td>
-                                    <td className="py-2 text-center text-gray-600">{item.qty}</td>
-                                    <td className="py-2 text-right text-gray-600">{formatCurrency(item.price)}</td>
-                                    <td className="py-2 text-right font-bold text-gray-900 pr-2">{formatCurrency(item.total)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                        {(() => {
+                            const chunks = []
+                            for (let i = 0; i < displayItems.length; i += 20) {
+                                chunks.push(displayItems.slice(i, i + 20))
+                            }
+                            if (chunks.length === 0) chunks.push([])
+                            return chunks.map((chunk, chunkIdx) => (
+                                <div key={chunkIdx} className={chunkIdx > 0 ? 'page-break' : ''}>
+                                <table className="w-full text-left text-xs">
+                                    <thead className="bg-gray-50 text-gray-600 font-semibold border-y border-gray-200 uppercase tracking-wider">
+                                        <tr>
+                                            <th className="py-2 pl-2">#</th>
+                                            <th className="py-2">Description</th>
+                                            <th className="py-2 text-center">Qty</th>
+                                            <th className="py-2 text-right">Price</th>
+                                            <th className="py-2 text-right pr-2">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {chunk.map((item, index) => (
+                                            <tr key={index} className="border-b border-gray-100">
+                                            <td className="py-2 pl-2 text-gray-400 font-mono text-[10px]">{chunkIdx * 20 + index + 1}</td>
+                                            <td className="py-2 font-medium text-gray-800">{item.description}</td>
+                                            <td className="py-2 text-center text-gray-600">{item.qty}</td>
+                                            <td className="py-2 text-right text-gray-600">{formatCurrency(item.price)}</td>
+                                            <td className="py-2 text-right font-bold text-gray-900 pr-2">{formatCurrency(item.total)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                </div>
+                            ))
+                        })()}
                         </div>
 
                         {/* spacer to push footer down if content is short, 
@@ -256,16 +268,16 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                                 </div>
                             )}
                             
-                            {deposit > 0 && (
+                            {deposit > 0 && !isReceipt && (
                                 <div className="flex justify-between text-green-600 text-xs font-bold bg-green-50 p-2 rounded mb-1 mx-3">
                                     <span>Paid Deposit</span>
                                     <span>-{formatCurrency(deposit)}</span>
                                 </div>
                             )}
 
-                            <div className="flex justify-between items-center bg-gray-900 text-white p-3 rounded shadow-sm mt-2">
-                                <span className="font-semibold text-sm">Total Due</span>
-                                <span className="font-bold text-lg">{formatCurrency(balanceDue)}</span>
+                            <div className={`flex justify-between items-center ${isReceipt ? 'bg-green-700' : 'bg-gray-900'} text-white p-3 rounded shadow-sm mt-2`}>
+                                <span className="font-semibold text-sm">{isReceipt ? 'PAID' : 'Total Due'}</span>
+                                <span className="font-bold text-lg">{formatCurrency(isReceipt ? totalAmount : balanceDue)}</span>
                             </div>
                         </div>
                         </div>
@@ -273,6 +285,7 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                         {/* Notes & Terms */}
                         <div className="grid grid-cols-1 gap-6 pt-4 border-t border-gray-200 avoid-break">
                             <div className="flex gap-8 items-start text-[10px] text-gray-500 leading-relaxed">
+                                {!isReceipt && (
                                 <div className="flex-1">
                                     <p className="font-bold text-gray-800 uppercase mb-1">Payment Instructions</p>
                                     <p>1. Payments can be made via Cash, Credit Card, or Online Transfer.</p>
@@ -281,6 +294,13 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                                     MAYBANK: <b>562786117821</b> <span className="mx-2">|</span> OneXtransmission
                                     </div>
                                 </div>
+                                )}
+                                {isReceipt && (
+                                <div className="flex-1">
+                                    <p className="font-bold text-green-700 uppercase mb-1">Payment Confirmed</p>
+                                    <p>This receipt confirms full payment has been received.</p>
+                                </div>
+                                )}
                                 {notes && (
                                 <div className="flex-1">
                                     <p className="font-bold text-gray-800 uppercase mb-1">Notes</p>
@@ -320,7 +340,7 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                {/* Meta Data Strap */}
                <div className="w-full flex justify-between items-center border-y border-gray-100 py-3">
                   <div className="flex items-center gap-2">
-                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Invoice</span>
+                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{isReceipt ? 'Receipt' : 'Invoice'}</span>
                      <span className="text-sm font-bold text-gray-900 font-mono">#{invoiceNumber}</span>
                   </div>
                    <div className="flex items-center gap-2">
@@ -335,7 +355,7 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                {/* Bill To */}
                <div className="w-1/2">
                   <p className="uppercase text-[10px] font-bold text-gray-400 tracking-wider mb-2 border-b border-gray-100 pb-1">
-                    Billed To
+                    {isReceipt ? 'Received From' : 'Billed To'}
                   </p>
                   <h3 className="text-sm font-bold text-gray-900 mb-1">{customerInfo.name || 'Walk-in Customer'}</h3>
                   <div className="text-gray-500 space-y-0.5">
@@ -385,33 +405,44 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
 
             {/* Line Items Table */}
             <div className="mb-0 overflow-hidden border-t border-gray-900">
-               <table className="w-full text-sm">
-                  <thead className="bg-gray-900 text-white">
-                     <tr>
-                        <th className="py-2 px-3 text-left font-semibold text-xs border-r border-gray-700 w-12">#</th>
-                        <th className="py-2 px-3 text-left font-semibold text-xs border-r border-gray-700">Description</th>
-                        <th className="py-2 px-3 text-center font-semibold text-xs border-r border-gray-700 w-16">Qty</th>
-                        <th className="py-2 px-3 text-right font-semibold text-xs border-r border-gray-700 w-28">Price</th>
-                        <th className="py-2 px-3 text-right font-semibold text-xs w-32">Total</th>
-                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                     {displayItems.length > 0 ? displayItems.map((item, index) => (
-                        <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}>
-                           <td className="py-2 px-3 text-gray-400 text-xs border-r border-gray-100">{index + 1}</td>
-                           <td className="py-2 px-3 font-medium text-gray-800 text-xs border-r border-gray-100">
-                               {item.description}
-                               {item.type === 'labor' && <span className="ml-2 px-1 py-0.5 bg-blue-50 text-blue-600 rounded-[2px] text-[9px] uppercase tracking-wide">Labor</span>}
-                           </td>
-                           <td className="py-2 px-3 text-center text-gray-600 text-xs border-r border-gray-100">{item.qty}</td>
-                           <td className="py-2 px-3 text-right text-gray-600 text-xs border-r border-gray-100">{formatCurrency(item.price)}</td>
-                           <td className="py-2 px-3 text-right font-bold text-gray-900 text-xs">{formatCurrency(item.total)}</td>
-                        </tr>
-                     )) : (
-                        <tr><td colSpan="5" className="py-8 text-center text-gray-400 italic">No items added to this invoice.</td></tr>
-                     )}
-                  </tbody>
-               </table>
+               {(() => {
+                  const chunks = []
+                  for (let i = 0; i < displayItems.length; i += 20) {
+                      chunks.push(displayItems.slice(i, i + 20))
+                  }
+                  if (chunks.length === 0) chunks.push([])
+                  return chunks.map((chunk, chunkIdx) => (
+                      <div key={chunkIdx} className={chunkIdx > 0 ? 'page-break' : ''}>
+                      <table className="w-full text-sm">
+                         <thead className="bg-gray-900 text-white">
+                            <tr>
+                               <th className="py-2 px-3 text-left font-semibold text-xs border-r border-gray-700 w-12">#</th>
+                               <th className="py-2 px-3 text-left font-semibold text-xs border-r border-gray-700">Description</th>
+                               <th className="py-2 px-3 text-center font-semibold text-xs border-r border-gray-700 w-16">Qty</th>
+                               <th className="py-2 px-3 text-right font-semibold text-xs border-r border-gray-700 w-28">Price</th>
+                               <th className="py-2 px-3 text-right font-semibold text-xs w-32">Total</th>
+                            </tr>
+                         </thead>
+                         <tbody className="divide-y divide-gray-100">
+                            {chunk.length > 0 ? chunk.map((item, index) => (
+                               <tr key={index} className={(chunkIdx * 20 + index) % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}>
+                                  <td className="py-2 px-3 text-gray-400 text-xs border-r border-gray-100">{chunkIdx * 20 + index + 1}</td>
+                                  <td className="py-2 px-3 font-medium text-gray-800 text-xs border-r border-gray-100">
+                                      {item.description}
+                                      {item.type === 'labor' && <span className="ml-2 px-1 py-0.5 bg-blue-50 text-blue-600 rounded-[2px] text-[9px] uppercase tracking-wide">Labor</span>}
+                                  </td>
+                                  <td className="py-2 px-3 text-center text-gray-600 text-xs border-r border-gray-100">{item.qty}</td>
+                                  <td className="py-2 px-3 text-right text-gray-600 text-xs border-r border-gray-100">{formatCurrency(item.price)}</td>
+                                  <td className="py-2 px-3 text-right font-bold text-gray-900 text-xs">{formatCurrency(item.total)}</td>
+                               </tr>
+                            )) : (
+                               <tr><td colSpan="5" className="py-8 text-center text-gray-400 italic">No items added to this {isReceipt ? 'receipt' : 'invoice'}.</td></tr>
+                            )}
+                         </tbody>
+                      </table>
+                      </div>
+                  ))
+               })()}
             </div>
 
             {/* Spacer to push footer down */}
@@ -432,16 +463,16 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                      </div>
                   )}
                   
-                  {deposit > 0 && (
+                  {deposit > 0 && !isReceipt && (
                      <div className="flex justify-between text-green-600 text-xs font-bold bg-green-50 p-2 rounded mb-1 mx-3">
                         <span>Paid Deposit</span>
                         <span>-{formatCurrency(deposit)}</span>
                      </div>
                   )}
 
-                  <div className="flex justify-between items-center bg-gray-900 text-white p-3 rounded shadow-sm mt-2">
-                     <span className="font-semibold text-sm">Total Due</span>
-                     <span className="font-bold text-lg">{formatCurrency(balanceDue)}</span>
+                  <div className={`flex justify-between items-center ${isReceipt ? 'bg-green-700' : 'bg-gray-900'} text-white p-3 rounded shadow-sm mt-2`}>
+                     <span className="font-semibold text-sm">{isReceipt ? 'PAID' : 'Total Due'}</span>
+                     <span className="font-bold text-lg">{formatCurrency(isReceipt ? totalAmount : balanceDue)}</span>
                   </div>
                </div>
             </div>
@@ -449,6 +480,7 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
             {/* Notes & Terms */}
             <div className="grid grid-cols-1 gap-6 pt-4 border-t border-gray-200 avoid-break">
                 <div className="flex gap-8 items-start text-[10px] text-gray-500 leading-relaxed">
+                    {!isReceipt && (
                     <div className="flex-1">
                         <p className="font-bold text-gray-800 uppercase mb-1">Payment Instructions</p>
                         <p>1. Payments can be made via Cash, Credit Card, or Online Transfer.</p>
@@ -457,6 +489,13 @@ const InvoicePreview = ({ invoice, onClose, isViewMode = false, renderTrigger })
                            MAYBANK: <b>562786117821</b> <span className="mx-2">|</span> OneXtransmission
                         </div>
                     </div>
+                    )}
+                    {isReceipt && (
+                    <div className="flex-1">
+                        <p className="font-bold text-green-700 uppercase mb-1">Payment Confirmed</p>
+                        <p>This receipt confirms full payment has been received.</p>
+                    </div>
+                    )}
                     {notes && (
                        <div className="flex-1">
                            <p className="font-bold text-gray-800 uppercase mb-1">Notes</p>
