@@ -329,7 +329,46 @@ function CustomerDatabase({ setActiveSection }) {
        {/* Table Area */}
        <div className="overflow-x-auto">
          {activeTab === 'active' ? (
-           <table className="w-full text-left">
+           <>
+             {/* Mobile Card View — < md */}
+             <div className="md:hidden p-3 space-y-3">
+               {filteredCustomers.length > 0 ? (
+                 filteredCustomers.map((customer) => (
+                   <div
+                     key={customer.id}
+                     onClick={() => handleCustomerSelect(customer)}
+                     className="bg-primary-white border border-black-10 rounded-lg p-4 shadow-subtle active:bg-blue-50 tap-clean cursor-pointer"
+                   >
+                     <div className="font-semibold text-gray-900 break-words">{customer.name}</div>
+                     {customer.address && (
+                       <div className="text-xs text-gray-400 break-words mt-0.5">{customer.address}</div>
+                     )}
+                     <div className="mt-2 space-y-1 text-sm">
+                       <div className="flex justify-between gap-2">
+                         <span className="text-black-50 text-xs">Phone</span>
+                         <span className="text-gray-700 text-right">{customer.phone || '-'}</span>
+                       </div>
+                       <div className="flex justify-between gap-2">
+                         <span className="text-black-50 text-xs">Email</span>
+                         <span className="text-gray-700 text-right break-all">{customer.email || '-'}</span>
+                       </div>
+                     </div>
+                     <button
+                       onClick={(e) => { e.stopPropagation(); handleCreateInvoice(customer); }}
+                       className="mt-3 w-full px-3 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors min-h-touch"
+                     >
+                       Create Invoice
+                     </button>
+                   </div>
+                 ))
+               ) : (
+                 <div className="text-center py-12 text-gray-500">No active customers found.</div>
+               )}
+             </div>
+
+             {/* Desktop Table — md+ */}
+             <div className="hidden md:block">
+             <table className="w-full text-left">
              <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-semibold">
                <tr>
                  <th className="px-6 py-4">Customer Name</th>
@@ -374,8 +413,46 @@ function CustomerDatabase({ setActiveSection }) {
                )}
              </tbody>
            </table>
+             </div>
+           </>
          ) : (
-           <table className="w-full text-left">
+           <>
+             {/* Mobile Card View — past customers */}
+             <div className="md:hidden p-3 space-y-3">
+               {isLoadingPastCustomers ? (
+                 <div className="py-12 text-center"><div className="loading-spinner mx-auto"></div></div>
+               ) : filteredPastCustomers.length > 0 ? (
+                 filteredPastCustomers.map((customer) => (
+                   <div
+                     key={customer.id}
+                     onClick={() => handlePastCustomerSelect(customer)}
+                     className="bg-primary-white border border-black-10 rounded-lg p-4 shadow-subtle active:bg-purple-50 tap-clean cursor-pointer"
+                   >
+                     <div className="flex items-start justify-between gap-3 mb-2">
+                       <div className="min-w-0 flex-1">
+                         <div className="font-semibold text-gray-900 break-words">{customer.name}</div>
+                         <div className="text-xs text-gray-500">{customer.phone}</div>
+                       </div>
+                       <div className="text-right shrink-0">
+                         <div className="font-bold text-green-600">{formatCurrency(customer.totalSpent)}</div>
+                         <div className="text-xs text-gray-500">{customer.invoiceCount} visit{customer.invoiceCount !== 1 ? 's' : ''}</div>
+                       </div>
+                     </div>
+                     <div className="flex justify-between text-xs pt-2 border-t border-black-10">
+                       <span className="text-black-50">Last visit</span>
+                       <span className="text-gray-600">{formatDate(customer.lastInvoiceDate)}</span>
+                     </div>
+                     <div className="mt-2 text-xs text-blue-600 font-semibold text-right">View History →</div>
+                   </div>
+                 ))
+               ) : (
+                 <div className="text-center py-12 text-gray-500">No past transaction history found.</div>
+               )}
+             </div>
+
+             {/* Desktop Table — past customers */}
+             <div className="hidden md:block">
+             <table className="w-full text-left">
               <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-semibold">
                 <tr>
                   <th className="px-6 py-4">Customer Name</th>
@@ -426,6 +503,8 @@ function CustomerDatabase({ setActiveSection }) {
                 )}
               </tbody>
            </table>
+             </div>
+           </>
          )}
        </div>
       </div>
