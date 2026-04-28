@@ -55,7 +55,21 @@ export default {
       boxShadow: {
         'subtle': '0 2px 8px rgba(0, 0, 0, 0.1)',
         'card': '0 4px 12px rgba(0, 0, 0, 0.1)',
-      }
+      },
+      keyframes: {
+        'fade-in': {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        'slide-up': {
+          '0%': { transform: 'translateY(100%)' },
+          '100%': { transform: 'translateY(0)' },
+        },
+      },
+      animation: {
+        'fade-in': 'fade-in 0.2s ease-out',
+        'slide-up': 'slide-up 0.25s ease-out',
+      },
     },
   },
   plugins: [],
