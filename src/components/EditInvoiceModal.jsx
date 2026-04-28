@@ -9,6 +9,7 @@ import { usePartsContext } from '../context/PartsContext'
 import PartsSelector from './PartsSelector'
 import StockChangeSummary from './StockChangeSummary'
 import { useInvoiceEditor } from '../hooks/useInvoiceEditor'
+import { ResponsiveModal } from './ui'
 
 function EditInvoiceModal({ invoice, onClose, onSuccess }) {
   console.log('🔧 EditInvoiceModal rendered with invoice:', invoice?.id, invoice?.invoiceNumber)
@@ -216,16 +217,14 @@ function EditInvoiceModal({ invoice, onClose, onSuccess }) {
   // Loading state
   if (!invoice || partsLoading || invoiceLoading) {
     return (
-      <div className="modal-overlay">
-        <div className="modal-content">
-          <div className="flex items-center justify-center py-12">
-            <div className="loading-spinner mr-3"></div>
-            <span className="text-black-75">
-              {!invoice ? 'Loading invoice...' : 'Loading parts...'}
-            </span>
-          </div>
+      <ResponsiveModal isOpen={true} onClose={onClose} title="Loading invoice…" size="md">
+        <div className="flex items-center justify-center py-12">
+          <div className="loading-spinner mr-3"></div>
+          <span className="text-black-75">
+            {!invoice ? 'Loading invoice...' : 'Loading parts...'}
+          </span>
         </div>
-      </div>
+      </ResponsiveModal>
     )
   }
 
@@ -238,67 +237,91 @@ function EditInvoiceModal({ invoice, onClose, onSuccess }) {
   const canSave = isValid && allErrors.length === 0 && selectedParts.length > 0 && !isSaving
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-content max-w-6xl">
-        {/* Modal Header - Sticky on mobile */}
-        <div className="sticky top-0 bg-primary-white border-b border-black-25 p-4 sm:p-6 z-10">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h3 className="text-lg sm:text-xl font-semibold text-primary-black">
-                Edit Invoice
-              </h3>
-              <div className="flex flex-wrap items-center gap-4 text-sm text-black-75 mt-1">
-                <span>{invoice.invoiceNumber}</span>
-                <span>•</span>
-                <span>Created: {new Date(invoice.dateCreated).toLocaleDateString()}</span>
-                {isDirty && (
-                  <>
-                    <span>•</span>
-                    <span className="text-primary-red font-medium">Unsaved Changes</span>
-                  </>
-                )}
-              </div>
-            </div>
-            <button
-              onClick={handleCancel}
-              className="text-black-50 hover:text-primary-black text-2xl leading-none p-2 -m-2 sm:self-start"
-            >
-              ×
-            </button>
-          </div>
-
-          {/* Validation Status */}
-          {(allErrors.length > 0 || allWarnings.length > 0) && (
-            <div className="mt-4 space-y-2">
-              {allErrors.map((error, index) => (
-                <div key={`error-${index}`} className="bg-red-50 border border-primary-red rounded-md p-3">
-                  <div className="flex items-start gap-2">
-                    <span className="text-primary-red font-medium text-sm">⚠️</span>
-                    <div className="text-sm">
-                      <div className="font-medium text-primary-red">{error.message}</div>
-                      {error.context?.suggestedAction && (
-                        <div className="text-black-75 mt-1">{error.context.suggestedAction}</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {allWarnings.map((warning, index) => (
-                <div key={`warning-${index}`} className="bg-yellow-50 border border-yellow-400 rounded-md p-3">
-                  <div className="flex items-start gap-2">
-                    <span className="text-yellow-600 font-medium text-sm">⚠️</span>
-                    <div className="text-sm">
-                      <div className="font-medium text-yellow-800">{warning.message}</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+    <ResponsiveModal
+      isOpen={true}
+      onClose={handleCancel}
+      size="2xl"
+      title={`Edit Invoice — ${invoice.invoiceNumber}`}
+      bodyClassName="p-0"
+      footer={
+        <>
+          <button
+            onClick={handleCancel}
+            className="btn-secondary w-full sm:w-auto"
+            disabled={isSaving}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            className={`btn-primary w-full sm:w-auto ${!canSave ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={!canSave}
+          >
+            {isSaving ? (
+              <span className="flex items-center justify-center gap-2">
+                <div className="loading-spinner"></div>
+                Saving…
+              </span>
+            ) : (
+              `Save Changes (RM ${total.toFixed(2)})`
+            )}
+          </button>
+        </>
+      }
+    >
+      {/* Sub-header: meta + validation status */}
+      <div className="px-4 sm:px-6 pt-4 pb-2 border-b border-black-10">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm text-black-75">
+          <span>Created: {new Date(invoice.dateCreated).toLocaleDateString()}</span>
+          {isDirty && (
+            <span className="text-primary-red font-medium">• Unsaved Changes</span>
           )}
         </div>
 
-        {/* Main Content */}
-        <div className="p-4 sm:p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+        {(allErrors.length > 0 || allWarnings.length > 0) && (
+          <div className="mt-3 space-y-2">
+            {allErrors.map((error, index) => (
+              <div key={`error-${index}`} className="bg-red-50 border border-primary-red rounded-md p-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-primary-red font-medium text-sm">⚠️</span>
+                  <div className="text-sm">
+                    <div className="font-medium text-primary-red">{error.message}</div>
+                    {error.context?.suggestedAction && (
+                      <div className="text-black-75 mt-1">{error.context.suggestedAction}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {allWarnings.map((warning, index) => (
+              <div key={`warning-${index}`} className="bg-yellow-50 border border-yellow-400 rounded-md p-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-yellow-600 font-medium text-sm">⚠️</span>
+                  <div className="text-sm">
+                    <div className="font-medium text-yellow-800">{warning.message}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Save status hint */}
+        <div className="mt-2 text-xs">
+          {!canSave && allErrors.length > 0 && (
+            <span className="text-primary-red">Fix validation errors to save</span>
+          )}
+          {!canSave && selectedParts.length === 0 && (
+            <span className="text-primary-red">Add at least one part to save</span>
+          )}
+          {isDirty && canSave && (
+            <span className="text-green-600">Ready to save changes</span>
+          )}
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="p-4 sm:p-6 space-y-6">
           {/* Customer Information */}
           <div className="card">
             <h4 className="font-semibold text-primary-black mb-4">Customer Information</h4>
@@ -442,7 +465,7 @@ function EditInvoiceModal({ invoice, onClose, onSuccess }) {
             />
           </div>
 
-          {/* Internal Cost Management */}
+        {/* Internal Cost Management */}
           <div className="card bg-gray-50 border border-black-10">
              <div className="flex items-center gap-2 mb-4">
                 <span className="text-lg opacity-75">🔒</span>
@@ -489,48 +512,6 @@ function EditInvoiceModal({ invoice, onClose, onSuccess }) {
           </div>
         </div>
 
-        {/* Sticky Bottom Actions */}
-        <div className="sticky bottom-0 bg-primary-white border-t border-black-25 p-4 sm:p-6">
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <button
-              onClick={handleCancel}
-              className="btn-secondary order-2 sm:order-1 min-h-[44px]"
-              disabled={isSaving}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              className={`btn-primary order-1 sm:order-2 min-h-[44px] ${
-                !canSave ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-              disabled={!canSave}
-            >
-              {isSaving ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="loading-spinner"></div>
-                  Saving Changes...
-                </span>
-              ) : (
-                `Save Changes (RM ${total.toFixed(2)})`
-              )}
-            </button>
-          </div>
-          
-          {/* Save status info */}
-          <div className="mt-2 text-xs text-black-75">
-            {!canSave && allErrors.length > 0 && (
-              <div className="text-primary-red">Fix validation errors to save</div>
-            )}
-            {!canSave && selectedParts.length === 0 && (
-              <div className="text-primary-red">Add at least one part to save</div>
-            )}
-            {isDirty && canSave && (
-              <div className="text-green-600">Ready to save changes</div>
-            )}
-          </div>
-        </div>
-
         {/* Parts Selector Modal */}
         {showPartsSelector && (
           <PartsSelector
@@ -540,8 +521,7 @@ function EditInvoiceModal({ invoice, onClose, onSuccess }) {
             existingParts={selectedParts}
           />
         )}
-      </div>
-    </div>
+    </ResponsiveModal>
   )
 }
 

@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react'
 import ConflictResolver from '../utils/ConflictResolver'
+import { ResponsiveModal } from './ui'
 
 const ConflictResolutionModal = ({ 
   isOpen, 
@@ -173,26 +174,46 @@ const ConflictResolutionModal = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black bg-opacity-75 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg max-w-4xl w-full max-h-full overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="bg-red-600 text-white p-4 flex justify-between items-center">
-          <div>
-            <h2 className="text-xl font-bold">Conflict Resolution Required</h2>
-            <p className="text-red-100 text-sm">
-              Invoice #{localInvoice?.invoiceNumber} has been modified by another user
-            </p>
-          </div>
+    <ResponsiveModal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="xl"
+      closeOnBackdrop={!loading}
+      closeOnEsc={!loading}
+      title={`Conflict — Invoice #${localInvoice?.invoiceNumber || ''}`}
+      footer={
+        <>
           <button
             onClick={onClose}
-            className="text-white hover:text-red-200 text-2xl font-bold"
+            className="btn-secondary w-full sm:w-auto"
             disabled={loading}
           >
-            ×
+            Cancel
           </button>
+          {resolutionStrategy?.requiresConfirmation && (
+            <span className="text-xs sm:text-sm text-primary-red text-center sm:self-center order-first sm:order-none">
+              ⚠ This action cannot be undone
+            </span>
+          )}
+          <button
+            onClick={() => handleResolutionSelect(resolutionStrategy)}
+            disabled={!resolutionStrategy || loading}
+            className={`btn-primary w-full sm:w-auto ${!resolutionStrategy || loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {loading ? 'Resolving...' : `Apply ${resolutionStrategy?.name || 'Resolution'}`}
+          </button>
+        </>
+      }
+    >
+      <div className="-mx-4 sm:-mx-6 -my-4">
+        {/* Sub-header banner */}
+        <div className="bg-primary-red text-white px-4 sm:px-6 py-3">
+          <p className="text-sm">
+            This invoice was modified by another user. Choose how to resolve.
+          </p>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="p-4 sm:p-6">
           {/* Conflict Summary */}
           <div className="mb-6">
             <div className="bg-gray-50 rounded-lg p-4 mb-4">
@@ -379,39 +400,8 @@ const ConflictResolutionModal = ({
             </div>
           )}
         </div>
-
-        {/* Footer Actions */}
-        <div className="border-t bg-gray-50 px-6 py-4 flex justify-between items-center">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-            disabled={loading}
-          >
-            Cancel
-          </button>
-
-          <div className="flex space-x-3">
-            {resolutionStrategy?.requiresConfirmation && (
-              <span className="text-sm text-red-600 self-center">
-                ⚠ This action cannot be undone
-              </span>
-            )}
-            
-            <button
-              onClick={() => handleResolutionSelect(resolutionStrategy)}
-              disabled={!resolutionStrategy || loading}
-              className={`px-6 py-2 rounded font-medium transition-colors ${
-                !resolutionStrategy || loading
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-red-600 text-white hover:bg-red-700'
-              }`}
-            >
-              {loading ? 'Resolving...' : `Apply ${resolutionStrategy?.name || 'Resolution'}`}
-            </button>
-          </div>
-        </div>
       </div>
-    </div>
+    </ResponsiveModal>
   )
 }
 

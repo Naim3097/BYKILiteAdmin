@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { usePartsContext } from '../context/PartsContext'
+import { ResponsiveModal } from './ui'
 
 function AddPartForm({ onClose }) {
   const { addPart } = usePartsContext()
@@ -177,21 +178,13 @@ function AddPartForm({ onClose }) {
   }
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-content sm:max-w-2xl">
-        {/* Modal Header - Sticky on mobile */}
-        <div className="sticky top-0 bg-primary-white border-b border-black-10 p-4 sm:p-6 z-10">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg sm:text-xl font-semibold">Add New Part</h3>
-            <button
-              onClick={onClose}
-              className="text-black-50 hover:text-primary-black text-2xl leading-none p-2 -m-2"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-
+    <ResponsiveModal
+      isOpen={true}
+      onClose={onClose}
+      title="Add New Part"
+      size="lg"
+      bodyClassName="p-0"
+    >
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 sm:space-y-6">
           {/* Mobile-first form layout */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -442,8 +435,7 @@ function AddPartForm({ onClose }) {
             </div>
           </div>
         </form>
-      </div>
-    </div>
+    </ResponsiveModal>
   )
 }
 
