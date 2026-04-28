@@ -204,7 +204,37 @@ function EmployeeManagement() {
              </div>
           </div>
 
-          <div className="overflow-x-auto">
+          {/* Mobile Card View — < md */}
+          <div className="md:hidden p-3 space-y-3">
+             {filteredEmployees.length > 0 ? filteredEmployees.map(emp => (
+                <div key={emp.id} className="bg-primary-white border border-black-10 rounded-lg p-4 shadow-subtle">
+                   <div className="flex items-start gap-3 mb-3 pb-3 border-b border-black-10">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-gray-600 font-bold border border-gray-200 shrink-0">
+                         {emp.firstName?.[0]}{emp.lastName?.[0]}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                         <p className="font-bold text-gray-900 break-words">{emp.firstName} {emp.lastName}</p>
+                         <p className="text-xs text-gray-500">{emp.role?.replace(/_/g, ' ')} · {emp.department}</p>
+                      </div>
+                      <span className="px-2 py-1 text-[10px] font-bold bg-green-100 text-green-700 rounded-full uppercase shrink-0">Active</span>
+                   </div>
+                   <div className="space-y-1 text-sm">
+                      <div className="flex justify-between gap-2"><span className="text-black-50 text-xs">Email</span><span className="text-gray-700 text-right break-all">{emp.email || '-'}</span></div>
+                      <div className="flex justify-between gap-2"><span className="text-black-50 text-xs">Phone</span><span className="text-gray-700 text-right">{emp.phone || '-'}</span></div>
+                      <div className="flex justify-between gap-2"><span className="text-black-50 text-xs">Since</span><span className="text-gray-700 text-right">{emp.startDate ? new Date(emp.startDate).toLocaleDateString() : 'N/A'}</span></div>
+                   </div>
+                   <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-black-10">
+                      <button onClick={() => handleEdit(emp)} className="py-2 bg-blue-50 text-blue-700 text-sm font-semibold rounded-lg hover:bg-blue-100 min-h-touch">Edit</button>
+                      <button onClick={() => handleDelete(emp.id)} className="py-2 bg-red-50 text-red-600 text-sm font-semibold rounded-lg hover:bg-red-100 min-h-touch">Delete</button>
+                   </div>
+                </div>
+             )) : (
+                <div className="text-center py-12 text-gray-500">No staff members found.</div>
+             )}
+          </div>
+
+          {/* Desktop Table — md+ */}
+          <div className="hidden md:block overflow-x-auto touch-scroll">
              <table className="w-full text-left">
                 <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-semibold border-b border-gray-100">
                    <tr>

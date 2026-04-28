@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { usePartsContext } from '../context/PartsContext'
+import { ResponsiveModal } from './ui'
 
 function EditPartModal({ part, onClose }) {
   const { updatePart } = usePartsContext()
@@ -97,21 +98,14 @@ function EditPartModal({ part, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-primary-white rounded-lg shadow-card w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-primary-white border-b border-black-10 p-6">
-          <div className="flex justify-between items-center">
-            <h3 className="text-xl font-semibold">Edit Part</h3>
-            <button
-              onClick={onClose}
-              className="text-black-50 hover:text-primary-black text-2xl leading-none"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+    <ResponsiveModal
+      isOpen={true}
+      onClose={onClose}
+      title="Edit Part"
+      size="lg"
+      bodyClassName="p-0"
+    >
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 sm:space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-small font-medium text-primary-black mb-2">
@@ -301,7 +295,7 @@ function EditPartModal({ part, onClose }) {
             </div>
           </div>
 
-          <div className="flex gap-4 pt-4 border-t border-black-10">
+          <div className="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4 pt-4 border-t border-black-10">
             <button
               type="button"
               onClick={onClose}
@@ -326,8 +320,7 @@ function EditPartModal({ part, onClose }) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </ResponsiveModal>
   )
 }
 

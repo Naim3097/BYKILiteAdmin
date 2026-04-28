@@ -199,8 +199,66 @@ function CarStatus() {
           </div>
         </div>
 
-        {/* Table View */}
-        <div className="overflow-x-auto">
+        {/* Mobile Card View — < md */}
+        <div className="md:hidden p-3 space-y-3">
+          {filteredOrders.length > 0 ? (
+            filteredOrders.map((order) => (
+              <div
+                key={order.id}
+                className="bg-primary-white border border-black-10 rounded-lg p-4 shadow-subtle active:bg-black-10/30 tap-clean"
+              >
+                <div className="flex items-start gap-3 mb-3 pb-3 border-b border-black-10">
+                  <div className="w-10 h-10 rounded-lg bg-gray-100 shrink-0 flex items-center justify-center text-gray-400">
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-gray-900 break-words">
+                      {order.vehicleInfo?.make} {order.vehicleInfo?.model}
+                    </p>
+                    <p className="text-xs font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded inline-block mt-0.5">
+                      {order.vehicleInfo?.licensePlate || 'NO PLATE'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-black-50 text-xs">Owner</span>
+                    <span className="text-primary-black text-right break-words">{order.customerName}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-black-50 text-xs shrink-0">Status</span>
+                    <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border ${getStatusBadgeColor(order.repairStatus)}`}>
+                      {STATUS_LABELS[order.repairStatus] || 'Unknown'}
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        order.repairStatus === REPAIR_STATUSES.READY_FOR_PICKUP ? 'bg-green-500' : 'bg-blue-500'
+                      }`}
+                      style={{ width: `${getStatusProgress(order.repairStatus)}%` }}
+                    />
+                  </div>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-black-50 text-xs">Last Update</span>
+                    <span className="text-gray-600 text-right">{formatDate(order.lastUpdated)}</span>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="text-center py-12 text-gray-500">
+              <p className="font-medium">No vehicles found</p>
+              <p className="text-sm mt-1">Try adjusting your search or filter</p>
+            </div>
+          )}
+        </div>
+
+        {/* Desktop Table View — md+ */}
+        <div className="hidden md:block overflow-x-auto touch-scroll">
           <table className="w-full text-left">
             <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-semibold border-b border-gray-100">
               <tr>

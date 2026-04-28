@@ -193,8 +193,86 @@ function InvoiceHistory() {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <>
+            {/* Mobile Card View — < md */}
+            <div className="md:hidden space-y-3 p-3">
+              {filteredByDate
+                .sort((a, b) => new Date(b.dateCreated) - new Date(a.dateCreated))
+                .map((invoice) => (
+                  <div
+                    key={invoice.id}
+                    className="bg-primary-white border border-black-10 rounded-lg p-4 shadow-subtle"
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-3 pb-3 border-b border-black-10">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-primary-black break-words">
+                          {invoice.invoiceNumber}
+                        </div>
+                        <div className="text-xs text-black-75 mt-0.5">
+                          {formatDate(invoice.dateCreated)}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-bold text-primary-red text-base">
+                          RM{invoice.totalAmount.toFixed(2)}
+                        </div>
+                        <div className="text-xs text-black-75">
+                          {invoice.items.length} item{invoice.items.length !== 1 ? 's' : ''}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-sm mb-2">
+                      <div className="text-black-50 text-xs">Customer</div>
+                      <div className="text-primary-black break-words">
+                        {invoice.customerInfo?.name || 'Walk-in Customer'}
+                      </div>
+                      {invoice.customerInfo?.phone && (
+                        <div className="text-xs text-black-75">{invoice.customerInfo.phone}</div>
+                      )}
+                    </div>
+
+                    {invoice.items.length > 0 && (
+                      <div className="text-xs text-black-75 mb-3 break-words">
+                        {invoice.items.slice(0, 2).map((item) => item.kodProduk).join(', ')}
+                        {invoice.items.length > 2 && ` +${invoice.items.length - 2} more`}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-black-10">
+                      <button
+                        onClick={() => setSelectedInvoice(invoice)}
+                        className="btn-tertiary text-sm py-2 min-h-touch"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={() => handleEditClick(invoice)}
+                        className="btn-secondary text-sm py-2 min-h-touch"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => downloadPDF(invoice)}
+                        className="btn-tertiary text-sm py-2 min-h-touch"
+                      >
+                        PDF
+                      </button>
+                      <button
+                        onClick={() => handleDeleteInvoice(invoice)}
+                        disabled={deletingInvoiceId === invoice.id}
+                        className="btn-danger text-sm py-2 min-h-touch"
+                      >
+                        {deletingInvoiceId === invoice.id ? '…' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+
+            {/* Desktop Table View — md+ */}
+            <div className="hidden md:block overflow-x-auto touch-scroll">
+              <table className="w-full">
               <thead>
                 <tr className="border-b border-black-10">
                   <th className="table-header text-left">Invoice Number</th>
@@ -278,6 +356,7 @@ function InvoiceHistory() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 
