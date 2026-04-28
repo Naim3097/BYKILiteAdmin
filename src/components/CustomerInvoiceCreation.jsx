@@ -6,6 +6,7 @@ import { collection, query, orderBy, onSnapshot, getDocs, deleteDoc, doc } from 
 import { db } from '../firebaseConfig'
 import { LeanxService } from '../utils/LeanxService'
 import InvoicePreview from './InvoicePreview'
+import { ResponsiveModal } from './ui'
 
 function CustomerInvoiceCreation({ setActiveSection }) {
   // --- States ---
@@ -464,7 +465,63 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                    </button>
                 </div>
              </div>
-             <div className="overflow-x-auto">
+             {/* Mobile Card View — < md */}
+             <div className="md:hidden p-3 space-y-3">
+                {invoiceHistory
+                   .filter(i => !searchQuery || i.customerName?.toLowerCase().includes(searchQuery.toLowerCase()) || i.invoiceNumber?.toLowerCase().includes(searchQuery.toLowerCase()))
+                   .filter(i => {
+                      if (statusFilter === 'all') return true
+                      if (statusFilter === 'pending') return i.paymentStatus !== 'paid' && i.paymentStatus !== 'deposit-paid'
+                      return i.paymentStatus === statusFilter
+                   })
+                   .sort((a, b) => {
+                      let valA, valB
+                      if (sortField === 'dateCreated') { valA = new Date(a.dateCreated); valB = new Date(b.dateCreated) }
+                      else if (sortField === 'total') { valA = Number(a.total || a.customerTotal || 0); valB = Number(b.total || b.customerTotal || 0) }
+                      else if (sortField === 'customerName') { valA = (a.customerName || '').toLowerCase(); valB = (b.customerName || '').toLowerCase() }
+                      else if (sortField === 'balanceDue') { valA = Number(a.balanceDue || 0); valB = Number(b.balanceDue || 0) }
+                      else { valA = a[sortField]; valB = b[sortField] }
+                      if (valA < valB) return sortDirection === 'asc' ? -1 : 1
+                      if (valA > valB) return sortDirection === 'asc' ? 1 : -1
+                      return 0
+                   })
+                   .map(i => (
+                      <div key={i.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                         <div className="flex items-start justify-between gap-3 mb-3 pb-3 border-b border-gray-100">
+                            <div className="min-w-0 flex-1">
+                               <div className="font-mono text-sm font-semibold text-gray-800">{i.invoiceNumber}</div>
+                               {i.parentInvoiceNumber && <div className="text-[10px] text-purple-500">Ret: #{i.parentInvoiceNumber}</div>}
+                               <div className="text-xs text-gray-500 mt-1">{new Date(i.dateCreated).toLocaleDateString()}</div>
+                               <div className="text-sm font-medium text-gray-900 mt-1 break-words">{i.customerName}</div>
+                            </div>
+                            <div className="text-right shrink-0">
+                               <div className="text-lg font-bold text-gray-900">{formatCurrency(i.total || i.customerTotal)}</div>
+                               <span className={`inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold border ${i.paymentStatus==='paid'?'bg-green-50 text-green-700 border-green-200':'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
+                                  {i.paymentStatus === 'paid' ? 'Paid' : 'Pending'}
+                               </span>
+                            </div>
+                         </div>
+                         {(i.mechanics?.length > 0 || i.deposit > 0) && (
+                            <div className="text-xs text-gray-500 space-y-1 mb-3">
+                               {i.mechanics?.length > 0 && <div><span className="font-semibold text-gray-700">Mechanic:</span> {(i.mechanics || []).map(m => (m.name || '').split(' ')[0]).join(', ')}</div>}
+                               {i.deposit > 0 && <div><span className="font-semibold text-gray-700">Deposit:</span> <span className="text-green-600">{formatCurrency(i.deposit)}</span></div>}
+                            </div>
+                         )}
+                         <div className="grid grid-cols-3 gap-2">
+                            <button onClick={() => setViewInvoice(i)} className="py-2 text-xs font-semibold bg-gray-100 text-gray-700 rounded min-h-touch">View</button>
+                            <button onClick={() => { setIsEditing(true); setEditingId(i.id); setSelectedCustomer({id:i.customerId,name:i.customerName,phone:i.customerPhone,email:i.customerEmail,ic:i.customerIC||'',address:i.customerAddress||''}); setManualParts(i.partsOrdered||[]); setLaborCharges(i.laborCharges||[]); setPaymentStatus(i.paymentStatus); setMechanics(i.mechanics||[]); setDeposit(i.deposit||0); setTotalPartsSupplierCost(i.partsSupplierCost||0); setDiscount(i.discount||0); setDiscountType(i.discountType||'percentage'); setWorkDescription(i.workDescription||''); setVehicleInfo(i.vehicleInfo||{make:'',model:'',year:'',plate:''}); setNotes(i.notes||''); setUseDirectLending(!!i.useDirectLending); setDirectLendingAmount(i.directLendingAmount||0); setViewMode('form'); }} className="py-2 text-xs font-semibold bg-blue-50 text-blue-700 rounded min-h-touch">Edit</button>
+                            <button onClick={() => handleLink(i)} className="py-2 text-xs font-semibold bg-green-50 text-green-700 rounded min-h-touch">Link</button>
+                            {i.paymentStatus === 'paid' && <button onClick={() => setShowReceipt(i)} className="py-2 text-xs font-semibold bg-teal-50 text-teal-700 rounded min-h-touch">Receipt</button>}
+                            <button onClick={() => handleReturnJob(i)} className="py-2 text-xs font-semibold bg-purple-50 text-purple-700 rounded min-h-touch">Return</button>
+                            <button onClick={() => handleDelete(i.id)} className="py-2 text-xs font-semibold bg-red-50 text-red-700 rounded min-h-touch">Delete</button>
+                         </div>
+                      </div>
+                   ))}
+                {invoiceHistory.length === 0 && <div className="text-center py-8 text-gray-400">No invoices yet.</div>}
+             </div>
+
+             {/* Desktop Table — md+ */}
+             <div className="hidden md:block overflow-x-auto touch-scroll">
                 <table className="w-full text-left text-sm">
                    <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
                       <tr>
@@ -572,7 +629,7 @@ function CustomerInvoiceCreation({ setActiveSection }) {
 
        {/* Form View (Editor) */}
        {viewMode === 'form' && (
-          <div className="space-y-4 max-w-4xl mx-auto bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+          <div className="space-y-4 max-w-4xl mx-auto bg-white p-4 sm:p-6 rounded-xl border border-gray-200 shadow-sm">
              <div className="flex justify-between items-center mb-4 pb-4 border-b">
                 <div>
                    <h2 className="text-xl font-bold text-gray-900">{isEditing ? 'Edit Invoice' : parentInvoiceId ? 'New Return Job' : 'New Invoice'}</h2>
@@ -659,19 +716,19 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                    </div>
                 </div>
                 {manualParts.map((p, i) => (
-                   <div key={i} className="flex gap-2">
-                       <input className="input-sm w-24" placeholder="SKU" value={p.sku} onChange={e => { const u=[...manualParts]; u[i].sku=e.target.value; setManualParts(u)}} />
-                       <input className="input-sm flex-1" placeholder="Part Name" value={p.partName} onChange={e => { const u=[...manualParts]; u[i].partName=e.target.value; setManualParts(u)}} />
-                       <input className="input-sm w-16" type="number" value={p.quantity} onChange={e => { const u=[...manualParts]; u[i].quantity=parseFloat(e.target.value)||0; u[i].total=Math.round(u[i].quantity*u[i].pricePerUnit*100)/100; setManualParts(u)}} />
-                       <input className="input-sm w-24" type="number" value={p.pricePerUnit} onChange={e => { const u=[...manualParts]; u[i].pricePerUnit=parseFloat(e.target.value)||0; u[i].total=Math.round(u[i].quantity*u[i].pricePerUnit*100)/100; setManualParts(u)}} />
-                       <button onClick={() => setManualParts(manualParts.filter((_,x) => x!==i))} className="text-red-500 font-bold">x</button>
+                   <div key={i} className="grid grid-cols-12 gap-2 items-center bg-gray-50 sm:bg-transparent p-2 sm:p-0 rounded">
+                       <input className="input-sm col-span-4 sm:col-span-2" placeholder="SKU" value={p.sku} onChange={e => { const u=[...manualParts]; u[i].sku=e.target.value; setManualParts(u)}} />
+                       <input className="input-sm col-span-8 sm:col-span-5" placeholder="Part Name" value={p.partName} onChange={e => { const u=[...manualParts]; u[i].partName=e.target.value; setManualParts(u)}} />
+                       <input className="input-sm col-span-4 sm:col-span-2" type="number" placeholder="Qty" value={p.quantity} onChange={e => { const u=[...manualParts]; u[i].quantity=parseFloat(e.target.value)||0; u[i].total=Math.round(u[i].quantity*u[i].pricePerUnit*100)/100; setManualParts(u)}} />
+                       <input className="input-sm col-span-6 sm:col-span-2" type="number" placeholder="Price" value={p.pricePerUnit} onChange={e => { const u=[...manualParts]; u[i].pricePerUnit=parseFloat(e.target.value)||0; u[i].total=Math.round(u[i].quantity*u[i].pricePerUnit*100)/100; setManualParts(u)}} />
+                       <button onClick={() => setManualParts(manualParts.filter((_,x) => x!==i))} className="col-span-2 sm:col-span-1 text-red-500 font-bold min-h-touch">×</button>
                    </div>
                 ))}
                 {laborCharges.map((l, i) => (
-                   <div key={i} className="flex gap-2">
-                       <input className="input-sm flex-1" placeholder="Labor Description" value={l.description} onChange={e => { const u=[...laborCharges]; u[i].description=e.target.value; setLaborCharges(u)}} />
-                       <input className="input-sm w-24" type="number" value={l.amount} onChange={e => { const u=[...laborCharges]; u[i].amount=parseFloat(e.target.value)||0; setLaborCharges(u)}} />
-                       <button onClick={() => setLaborCharges(laborCharges.filter((_,x) => x!==i))} className="text-red-500 font-bold">x</button>
+                   <div key={i} className="grid grid-cols-12 gap-2 items-center bg-gray-50 sm:bg-transparent p-2 sm:p-0 rounded">
+                       <input className="input-sm col-span-12 sm:col-span-8" placeholder="Labor Description" value={l.description} onChange={e => { const u=[...laborCharges]; u[i].description=e.target.value; setLaborCharges(u)}} />
+                       <input className="input-sm col-span-10 sm:col-span-3" type="number" placeholder="Amount" value={l.amount} onChange={e => { const u=[...laborCharges]; u[i].amount=parseFloat(e.target.value)||0; setLaborCharges(u)}} />
+                       <button onClick={() => setLaborCharges(laborCharges.filter((_,x) => x!==i))} className="col-span-2 sm:col-span-1 text-red-500 font-bold min-h-touch">×</button>
                    </div>
                 ))}
              </div>
@@ -739,7 +796,7 @@ function CustomerInvoiceCreation({ setActiveSection }) {
              </div>
              
              {/* Footer Actions */}
-             <div className="flex justify-between items-center pt-4 border-t mt-6">
+             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 pt-4 border-t mt-6">
                  <div>
                     {totals.discountAmount > 0 && (
                        <div className="text-sm space-y-0.5 mb-1">
@@ -748,9 +805,9 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                        </div>
                     )}
                     <p className="text-sm text-gray-500">Total Amount</p>
-                    <p className="text-3xl font-bold text-gray-900">{formatCurrency(totals.total)}</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-gray-900">{formatCurrency(totals.total)}</p>
                  </div>
-                 <button onClick={handleSaveInvoice} disabled={isSaving} className="px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg">{isSaving ? 'Saving...' : 'Save Invoice'}</button>
+                 <button onClick={handleSaveInvoice} disabled={isSaving} className="w-full sm:w-auto px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg min-h-touch">{isSaving ? 'Saving...' : 'Save Invoice'}</button>
              </div>
           </div>
        )}
@@ -1059,30 +1116,25 @@ function CustomerInvoiceCreation({ setActiveSection }) {
          )
        )}
 
-       {showCustomerModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-             <div className="bg-white rounded-xl shadow-xl w-full max-w-md h-96 flex flex-col p-4">
-                <div className="flex justify-between mb-2"><h3 className="font-bold">Select Customer</h3><button onClick={() => setShowCustomerModal(false)}>x</button></div>
-                <input autoFocus placeholder="Search name or phone..." className="p-2 border rounded mb-2" value={customerSearchTerm} onChange={e => setCustomerSearchTerm(e.target.value)} />
-                <div className="flex-1 overflow-y-auto">
-                   {customers.filter(c => {
-                      const term = customerSearchTerm.toLowerCase()
-                      return c.name?.toLowerCase().includes(term) || c.phone?.toLowerCase().includes(term)
-                   }).map(c => (
-                      <div key={c.id} onClick={() => { setSelectedCustomer(c); setShowCustomerModal(false)}} className="p-3 border-b hover:bg-gray-50 cursor-pointer flex justify-between">
-                         <span className="font-medium">{c.name}</span>
-                         <span className="text-gray-400 text-sm">{c.phone || ''}</span>
-                      </div>
-                   ))}
-                </div>
+       <ResponsiveModal isOpen={showCustomerModal} onClose={() => setShowCustomerModal(false)} title="Select Customer" size="md">
+          <div className="flex flex-col h-[60vh] sm:h-96">
+             <input autoFocus placeholder="Search name or phone..." className="p-3 border rounded mb-3 text-base" value={customerSearchTerm} onChange={e => setCustomerSearchTerm(e.target.value)} />
+             <div className="flex-1 overflow-y-auto -mx-2">
+                {customers.filter(c => {
+                   const term = customerSearchTerm.toLowerCase()
+                   return c.name?.toLowerCase().includes(term) || c.phone?.toLowerCase().includes(term)
+                }).map(c => (
+                   <div key={c.id} onClick={() => { setSelectedCustomer(c); setShowCustomerModal(false)}} className="p-3 mx-2 border-b hover:bg-gray-50 cursor-pointer flex justify-between items-center min-h-touch">
+                      <span className="font-medium break-words">{c.name}</span>
+                      <span className="text-gray-400 text-sm shrink-0 ml-2">{c.phone || ''}</span>
+                   </div>
+                ))}
              </div>
           </div>
-       )}
+       </ResponsiveModal>
 
-       {paymentLinkModal.show && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-             <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 text-center">
-                <h3 className="font-bold text-lg mb-4">Payment Link</h3>
+       <ResponsiveModal isOpen={paymentLinkModal.show} onClose={() => setPaymentLinkModal({...paymentLinkModal, show: false})} title="Payment Link" size="sm">
+          <div className="text-center">
                 {paymentLinkModal.url ? (
                    <div className="space-y-4">
                       <p className="text-xs bg-green-50 text-green-700 p-2 rounded break-all">{paymentLinkModal.url}</p>
@@ -1132,12 +1184,11 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                       </div>
                       {paymentLinkModal.error && <p className="text-xs text-red-500">{paymentLinkModal.error}</p>}
                       <button onClick={generateLink} disabled={paymentLinkModal.loading || !paymentLinkModal.amount} className="w-full py-3 bg-blue-600 text-white rounded font-bold disabled:opacity-50">{paymentLinkModal.loading?'Generating...':'Generate Link'}</button>
-                      <button onClick={() => setPaymentLinkModal({...paymentLinkModal, show: false})} className="w-full text-gray-500">Cancel</button>
+                      <button onClick={() => setPaymentLinkModal({...paymentLinkModal, show: false})} className="w-full text-gray-500 min-h-touch">Cancel</button>
                    </div>
                 )}
-             </div>
           </div>
-       )}
+       </ResponsiveModal>
        
        <style>{`.input-std { width: 100%; padding: 0.5rem; border: 1px solid #e5e7eb; border-radius: 0.5rem; } .input-sm { padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; border-radius: 0.25rem; }`}</style>
     </div>
