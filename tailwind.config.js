@@ -27,6 +27,21 @@ export default {
         'lg': '24px',
         'xl': '32px',
         'xxl': '48px',
+        'safe-top': 'env(safe-area-inset-top)',
+        'safe-bottom': 'env(safe-area-inset-bottom)',
+        'safe-left': 'env(safe-area-inset-left)',
+        'safe-right': 'env(safe-area-inset-right)',
+      },
+      minHeight: {
+        'touch': '44px',
+        'screen-safe': 'calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom))',
+        'dvh': '100dvh',
+      },
+      minWidth: {
+        'touch': '44px',
+      },
+      screens: {
+        'xs': '360px',
       },
       fontFamily: {
         sans: ['system-ui', 'sans-serif'],

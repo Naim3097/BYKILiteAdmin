@@ -15,6 +15,9 @@
     -webkit-text-size-adjust: 100%;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+    /* Prevent horizontal scroll bleed on mobile */
+    overflow-x: hidden;
   }
   
   body {
@@ -24,6 +27,25 @@
     background-color: #ffffff;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
+    /* Block iOS bounce/pull-to-refresh from layout shift */
+    overscroll-behavior-y: none;
+    /* Respect notch/safe areas */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+  
+  /* Prevent iOS auto-zoom on focus by forcing 16px+ base font on inputs */
+  input, textarea, select {
+    outline: none;
+    font: inherit;
+    font-size: 16px;
+  }
+  @media (min-width: 640px) {
+    input, textarea, select {
+      font-size: inherit;
+    }
   }
   
   /* Optimize images for all devices */
@@ -40,12 +62,6 @@
     background: none;
     font: inherit;
     cursor: pointer;
-  }
-  
-  /* Remove input outline */
-  input, textarea, select {
-    outline: none;
-    font: inherit;
   }
   
   /* Optimize for touch devices */
@@ -341,6 +357,29 @@
   
   .will-change-opacity {
     will-change: opacity;
+  }
+
+  /* Safe-area inset helpers (notch / home indicator) */
+  .safe-pt { padding-top: env(safe-area-inset-top); }
+  .safe-pb { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-pl { padding-left: env(safe-area-inset-left); }
+  .safe-pr { padding-right: env(safe-area-inset-right); }
+  .safe-px { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+  .safe-py { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  .safe-mt { margin-top: env(safe-area-inset-top); }
+  .safe-mb { margin-bottom: env(safe-area-inset-bottom); }
+
+  /* Dynamic viewport height (handles mobile browser chrome) */
+  .min-h-dvh { min-height: 100vh; min-height: 100dvh; }
+  .h-dvh    { height: 100vh;    height: 100dvh; }
+
+  /* Tap highlight off for clean buttons */
+  .tap-clean { -webkit-tap-highlight-color: transparent; }
+
+  /* Touch scroll containers */
+  .touch-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 }
 

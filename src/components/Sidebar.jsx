@@ -76,8 +76,9 @@ const Sidebar = ({ activeSection, setActiveSection, isMobileOpen, setIsMobileOpe
       {/* Sidebar Container */}
       <aside 
         className={`
-          fixed top-0 left-0 z-50 h-full w-64 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out
-          lg:translate-x-0 lg:static lg:h-screen lg:flex lg:flex-col
+          fixed top-0 left-0 z-50 w-72 max-w-[85vw] bg-slate-900 text-white transform transition-transform duration-300 ease-in-out flex flex-col
+          h-[100dvh] safe-pt safe-pb
+          lg:translate-x-0 lg:static lg:h-screen lg:w-64 lg:max-w-none lg:flex lg:flex-col
           ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
       >
@@ -94,7 +95,8 @@ const Sidebar = ({ activeSection, setActiveSection, isMobileOpen, setIsMobileOpe
           </div>
           <button 
             onClick={() => setIsMobileOpen(false)}
-            className="lg:hidden text-slate-400 hover:text-white"
+            aria-label="Close menu"
+            className="lg:hidden text-slate-400 hover:text-white min-h-touch min-w-touch flex items-center justify-center -mr-2 tap-clean"
           >
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -103,13 +105,12 @@ const Sidebar = ({ activeSection, setActiveSection, isMobileOpen, setIsMobileOpe
         </div>
 
         {/* Navigation Items */}
-        <div className="flex-1 overflow-y-auto py-4 px-3 space-y-6">
+        <div className="flex-1 overflow-y-auto touch-scroll py-4 px-3 space-y-6">
           {navigationGroups.map((group) => (
             <div key={group.title}>
               <button 
                 onClick={() => toggleGroup(group.title)}
-                className="w-full flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 hover:text-white transition-colors"
-                style={{minHeight: '24px'}} // Touch target size
+                className="w-full flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 hover:text-white transition-colors min-h-touch px-1 tap-clean"
               >
                 <div className="flex items-center gap-2">
                   {group.icon}
@@ -135,10 +136,10 @@ const Sidebar = ({ activeSection, setActiveSection, isMobileOpen, setIsMobileOpe
                         setIsMobileOpen(false)
                       }}
                       className={`
-                        w-full text-left px-3 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2
+                        w-full text-left px-3 py-3 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 min-h-touch tap-clean
                         ${activeSection === section.id 
                           ? 'bg-blue-600 text-white font-medium shadow-md' 
-                          : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                          : 'text-slate-300 hover:bg-slate-800 hover:text-white active:bg-slate-700'
                         }
                       `}
                     >
