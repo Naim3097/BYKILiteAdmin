@@ -419,7 +419,50 @@ function MechanicCommissionDashboard() {
         </div>
         
         {mechanicCommissions.length > 0 ? (
-          <div className="overflow-x-auto">
+          <>
+          {/* Mobile Card View — < md */}
+          <div className="md:hidden p-3 space-y-3">
+            {mechanicCommissions.map((mechanic, index) => (
+              <div key={index} className="bg-primary-white border border-black-10 rounded-lg p-4 shadow-subtle">
+                <div className="flex items-start justify-between gap-3 mb-3 pb-3 border-b border-black-10">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-primary-black break-words">{mechanic.name}</div>
+                    <div className="text-xs text-black-50">{mechanic.invoiceCount} jobs completed</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-xs text-black-50">Total</div>
+                    <div className="text-lg font-bold text-primary-red">{formatCurrency(mechanic.totalCommission)}</div>
+                  </div>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex flex-wrap gap-1">
+                    {mechanic.individualCommissions > 0 && (
+                      <span className="px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">👤 Indiv: {formatCurrency(mechanic.individualCommissions)}</span>
+                    )}
+                    {mechanic.teamCommissions > 0 && (
+                      <span className="px-2 py-1 rounded text-xs bg-purple-100 text-purple-800">👥 Team: {formatCurrency(mechanic.teamCommissions)}</span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div><div className="text-black-50">Parts Revenue</div><div className="text-primary-black">{formatCurrency(mechanic.totalPartsRevenue || 0)}</div></div>
+                    <div><div className="text-black-50">Labour</div><div className="text-primary-black">{formatCurrency(mechanic.totalLabour || 0)}</div></div>
+                    <div><div className="text-black-50">Paid</div><div className="text-green-600">{mechanic.paidInvoices}</div></div>
+                    <div><div className="text-black-50">Pending</div><div className="text-yellow-600">{mechanic.pendingInvoices}</div></div>
+                  </div>
+                  <div className="text-xs text-black-50 pt-1 border-t border-black-10">Paid out: {formatCurrency(mechanic.paidCommission)}</div>
+                </div>
+                <button
+                  onClick={() => showMechanicDetails(mechanic)}
+                  className="mt-3 w-full py-2 bg-red-50 text-primary-red text-sm font-semibold rounded-lg hover:bg-red-10 min-h-touch"
+                >
+                  View Details
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop Table — md+ */}
+          <div className="hidden md:block overflow-x-auto touch-scroll">
             <table className="min-w-full divide-y divide-black-10">
               <thead className="bg-black-10">
                 <tr>
@@ -482,6 +525,7 @@ function MechanicCommissionDashboard() {
               </tbody>
             </table>
           </div>
+          </>
         ) : (
           <div className="text-center py-8">
             <p className="text-black-50">No commission data found for the selected period.</p>

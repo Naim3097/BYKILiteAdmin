@@ -228,7 +228,36 @@ function PayrollManagement() {
                     </h3>
                   </div>
 
-                  <div className="overflow-x-auto">
+                  {/* Mobile Card View — < md */}
+                  <div className="md:hidden p-3 space-y-3">
+                    {(Array.isArray(generatedPayroll) ? generatedPayroll : [generatedPayroll]).map((p) => (
+                      <div key={p.employeeId} className="bg-primary-white border border-black-10 rounded-lg p-4 shadow-subtle">
+                        <div className="flex items-center gap-3 mb-3 pb-3 border-b border-black-10">
+                          <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center shrink-0">
+                            <span className="text-sm font-medium text-gray-600">{p.employee?.firstName?.[0]}{p.employee?.lastName?.[0]}</span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-gray-900 break-words">{p.employee?.firstName} {p.employee?.lastName}</div>
+                            <div className="text-xs text-gray-500 capitalize">{p.employee?.role?.replace('_',' ')}</div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-xs text-black-50">Net Pay</div>
+                            <div className="font-bold text-green-600">${p.netPay?.toFixed(2)}</div>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div><div className="text-xs text-black-50">Hours</div><div>{p.hoursWorked || 0}</div></div>
+                          <div><div className="text-xs text-black-50">Base Pay</div><div>${p.basePay?.toFixed(2)}</div></div>
+                          <div><div className="text-xs text-black-50">Overtime</div><div>${p.overtimePay?.toFixed(2) || '0.00'}</div></div>
+                          <div><div className="text-xs text-black-50">Commission</div><div>${p.commission?.toFixed(2) || '0.00'}</div></div>
+                          <div className="col-span-2 pt-2 border-t border-black-10"><div className="text-xs text-black-50">Gross Pay</div><div className="font-semibold">${p.grossPay?.toFixed(2)}</div></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Desktop Table — md+ */}
+                  <div className="hidden md:block overflow-x-auto touch-scroll">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
@@ -309,7 +338,36 @@ function PayrollManagement() {
             <div className="space-y-6">
               <h3 className="text-lg font-semibold text-gray-900">Employee Rates & Settings</h3>
 
-              <div className="overflow-x-auto">
+              {/* Mobile Card View — < md */}
+              <div className="md:hidden space-y-3">
+                {activeEmployees.map((employee) => (
+                  <div key={employee.id} className="bg-primary-white border border-black-10 rounded-lg p-4 shadow-subtle">
+                    <div className="flex items-center gap-3 mb-3 pb-3 border-b border-black-10">
+                      <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center shrink-0">
+                        <span className="text-sm font-medium text-gray-600">{employee.firstName?.[0]}{employee.lastName?.[0]}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-gray-900 break-words">{employee.firstName} {employee.lastName}</div>
+                        <div className="text-xs text-gray-500 capitalize">{employee.role?.replace('_', ' ')}</div>
+                      </div>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between gap-2"><span className="text-black-50 text-xs">Hourly</span><span className="text-gray-900">{employee.hourlyRate ? `$${employee.hourlyRate}/hr` : 'N/A'}</span></div>
+                      <div className="flex justify-between gap-2"><span className="text-black-50 text-xs">Annual</span><span className="text-gray-900">{employee.salary ? `$${employee.salary.toLocaleString()}/yr` : 'N/A'}</span></div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-black-50 text-xs">Commission</span>
+                        <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${employee.role === EMPLOYEE_ROLES.MECHANIC || employee.role === EMPLOYEE_ROLES.SERVICE_ADVISOR ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                          {employee.role === EMPLOYEE_ROLES.MECHANIC || employee.role === EMPLOYEE_ROLES.SERVICE_ADVISOR ? 'Yes' : 'No'}
+                        </span>
+                      </div>
+                    </div>
+                    <button className="mt-3 w-full py-2 bg-blue-50 text-blue-700 text-sm font-semibold rounded-lg hover:bg-blue-100 min-h-touch">Edit Rates</button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table — md+ */}
+              <div className="hidden md:block overflow-x-auto touch-scroll">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
