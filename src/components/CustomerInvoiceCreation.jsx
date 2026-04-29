@@ -753,6 +753,47 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                 {requestDepositAmount > 0 && <p className="text-xs text-blue-600 mt-2 font-medium">? Status will be "Pending Link Payment". You must confirm receipt to mark as Paid.</p>}
              </div>
 
+             {/* DirectLending / BNPL */}
+             <div className="bg-purple-50 p-4 rounded border border-purple-200 mt-4">
+                <div className="flex items-center gap-3 mb-3">
+                   <input
+                      id="useDirectLendingCheck"
+                      type="checkbox"
+                      className="w-4 h-4 accent-purple-600 cursor-pointer"
+                      checked={!!useDirectLending}
+                      onChange={e => { setUseDirectLending(e.target.checked); if (!e.target.checked) setDirectLendingAmount(0) }}
+                   />
+                   <label htmlFor="useDirectLendingCheck" className="text-sm font-bold text-purple-800 cursor-pointer select-none">
+                      Customer uses DirectLending (BNPL)
+                   </label>
+                </div>
+                {useDirectLending && (
+                   <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+                      <div className="flex-1 min-w-[140px]">
+                         <label className="block text-xs font-bold text-purple-700 mb-1">DirectLending Approved Amount (RM)</label>
+                         <input
+                            type="number"
+                            min="0"
+                            className="input-sm bg-white w-full"
+                            placeholder="0.00"
+                            value={directLendingAmount}
+                            onChange={e => setDirectLendingAmount(e.target.value)}
+                         />
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-4 sm:items-end">
+                         <div className="text-right">
+                            <p className="text-xs text-purple-600 font-bold">DirectLending Covers</p>
+                            <p className="text-lg font-bold text-purple-700">{formatCurrency(parseFloat(directLendingAmount) || 0)}</p>
+                         </div>
+                         <div className="text-right">
+                            <p className="text-xs text-green-600 font-bold">Customer Pays</p>
+                            <p className="text-lg font-bold text-green-700">{formatCurrency(totals.customerPayableAmount)}</p>
+                         </div>
+                      </div>
+                   </div>
+                )}
+             </div>
+
              {/* Internal Costing (Mechanics & Supplier) */}
              <div className="bg-yellow-50 p-4 rounded border border-yellow-200 mt-6">
                 <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Internal Costing & Commission</h4>
