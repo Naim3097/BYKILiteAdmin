@@ -489,7 +489,10 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                       <div key={i.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
                          <div className="flex items-start justify-between gap-3 mb-3 pb-3 border-b border-gray-100">
                             <div className="min-w-0 flex-1">
-                               <div className="font-mono text-sm font-semibold text-gray-800">{i.invoiceNumber}</div>
+                               <div className="flex items-center flex-wrap gap-1">
+                                  <span className="font-mono text-sm font-semibold text-gray-800">{i.invoiceNumber}</span>
+                                  {i.useDirectLending && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200">BNPL</span>}
+                               </div>
                                {i.parentInvoiceNumber && <div className="text-[10px] text-purple-500">Ret: #{i.parentInvoiceNumber}</div>}
                                <div className="text-xs text-gray-500 mt-1">{new Date(i.dateCreated).toLocaleDateString()}</div>
                                <div className="text-sm font-medium text-gray-900 mt-1 break-words">{i.customerName}</div>
@@ -563,7 +566,11 @@ function CustomerInvoiceCreation({ setActiveSection }) {
                          .map(i => (
                          <tr key={i.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3 text-xs text-gray-500">{new Date(i.dateCreated).toLocaleDateString()}</td>
-                            <td className="px-4 py-3 font-mono">{i.invoiceNumber} 
+                            <td className="px-4 py-3 font-mono">
+                               <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span>{i.invoiceNumber}</span>
+                                  {i.useDirectLending && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200">BNPL</span>}
+                               </div>
                                {i.parentInvoiceNumber && <span className="block text-[10px] text-purple-500">Ret: #{i.parentInvoiceNumber}</span>}
                             </td>
                             <td className="px-4 py-3">{i.customerName}</td>
