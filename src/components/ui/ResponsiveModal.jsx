@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useCallback } from 'react'
 
 /**
  * ResponsiveModal
@@ -42,8 +42,14 @@ const ResponsiveModal = ({
   bodyClassName = '',
 }) => {
   const dialogRef = useRef(null)
+  const onCloseRef = useRef(onClose)
+  const closeOnEscRef = useRef(closeOnEsc)
 
-  // ESC + body scroll lock
+  // Keep refs up to date without causing effect to re-run
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
+  useEffect(() => { closeOnEscRef.current = closeOnEsc }, [closeOnEsc])
+
+  // ESC + body scroll lock — only re-runs when isOpen changes
   useEffect(() => {
     if (!isOpen) return
 
@@ -51,7 +57,7 @@ const ResponsiveModal = ({
     document.body.style.overflow = 'hidden'
 
     const handleKey = (e) => {
-      if (closeOnEsc && e.key === 'Escape') onClose?.()
+      if (closeOnEscRef.current && e.key === 'Escape') onCloseRef.current?.()
     }
     document.addEventListener('keydown', handleKey)
 
@@ -68,7 +74,7 @@ const ResponsiveModal = ({
       document.removeEventListener('keydown', handleKey)
       clearTimeout(t)
     }
-  }, [isOpen, onClose, closeOnEsc])
+  }, [isOpen])
 
   if (!isOpen) return null
 
